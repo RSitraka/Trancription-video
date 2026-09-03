@@ -1,0 +1,13 @@
+faster-whisper>=1.0
+ffmpeg-python>=0.2
+fastapi>=0.110
+uvicorn[standard]>=0.29
+celery[redis]>=5.3
+psycopg[binary]>=3.1
+sqlalchemy>=2.0
+opencv-python-headless>=4.9
+pytesseract>=0.3.10
+pillow>=10.2
+pydantic-settings>=2.2
+python-multipart>=0.0.9
+tqdm>=4.66

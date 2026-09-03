@@ -1,0 +1,90 @@
+# Base CPU — fonctionne partout, y compris sans carte NVIDIA.
+# Pour le GPU, ajouter l'override :
+#   docker compose -f docker-compose.yml -f docker-compose.gpu.yml up -d
+
+x-app: &app
+  build:
+    context: .
+    args:
+      BASE_IMAGE: ubuntu:24.04
+  image: transcription-video-audio:latest
+  env_file: .env
+  environment:
+    DATABASE_URL: postgresql://transcription:transcription@postgres:5432/transcription
+    REDIS_URL: redis://redis:6379/0
+    WORK_DIR: /data/tmp
+    OUTPUT_DIR: /data/out
+  volumes:
+    - ./source:/app/source          # code monté à chaud en développement
+    - ./main.py:/app/main.py
+    - ./media:/media:ro             # fichiers sources (lecture seule)
+    - data:/data                    # chunks + résultats
+    - models:/models                # cache des modèles Whisper
+  depends_on:
+    postgres: {condition: service_healthy}
+    redis: {condition: service_healthy}
+  restart: unless-stopped
+
+services:
+  api:
+    <<: *app
+    ports:
+      # Port hôte configurable : 8000 est souvent déjà pris (API_PORT dans .env)
+      - "${API_PORT:-8000}:8000"
+    command: >
+      uvicorn source.api:app --host 0.0.0.0 --port 8000
+
+  worker:
+    <<: *app
+    # concurrency=1 : un seul modèle Whisper en mémoire par conteneur.
+    # Pour paralléliser, augmenter le nombre de répliques, pas la concurrence.
+    command: >
+      celery -A source.tasks:celery_app worker
+      --loglevel=info --concurrency=1 --max-tasks-per-child=4
+    ports: []
+    healthcheck:
+      disable: true
+
+  # Tâches ponctuelles en ligne de commande :
+  #   docker compose run --rm cli python main.py transcribe /media/cours.mp4
+  cli:
+    <<: *app
+    profiles: ["cli"]
+    command: ["python", "main.py", "--help"]
+    ports: []
+    restart: "no"
+    healthcheck:
+      disable: true
+
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: transcription
+      POSTGRES_PASSWORD: transcription
+      POSTGRES_DB: transcription
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U transcription"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    command: redis-server --appendonly yes
+    volumes:
+      - redisdata:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+volumes:
+  data:
+  models:
+  pgdata:
+  redisdata:

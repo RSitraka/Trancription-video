@@ -1,0 +1,72 @@
+"""Workers Celery : exécution asynchrone des jobs, progression persistée."""
+
+from __future__ import annotations
+
+import inspect
+import logging
+from pathlib import Path
+
+from celery import Celery
+
+from source import pipeline
+from source.config import settings
+from source.db import Job, SessionLocal, init_db
+
+log = logging.getLogger(__name__)
+
+celery_app = Celery("transcription", broker=settings.redis_url, backend=settings.redis_url)
+celery_app.conf.update(
+    task_track_started=True,
+    task_acks_late=True,               # un worker tué ne perd pas le job
+    worker_prefetch_multiplier=1,      # un job lourd à la fois par worker
+    task_time_limit=None,              # 1 To peut prendre des heures
+    result_expires=86400,
+)
+
+
+def _update(job_id: str, **fields) -> None:
+    with SessionLocal() as session:
+        job = session.get(Job, job_id)
+        if job is None:
+            return
+        for key, value in fields.items():
+            setattr(job, key, value)
+        session.commit()
+
+
+@celery_app.task(bind=True, name="jobs.process")
+def process_job(self, job_id: str) -> dict:
+    """Exécute un job : transcription, compression, ou les deux."""
+    init_db()
+
+    with SessionLocal() as session:
+        job = session.get(Job, job_id)
+        if job is None:
+            raise ValueError(f"job introuvable : {job_id}")
+        source = Path(job.source_path or "")
+        mode = job.mode
+        options = dict(job.options or {})
+
+    if not source.exists():
+        _update(job_id, status="failed", error=f"fichier absent : {source}")
+        raise FileNotFoundError(source)
+
+    def on_progress(stage: str, value: float) -> None:
+        _update(job_id, status=stage, progress=value)
+        self.update_state(state="PROGRESS", meta={"stage": stage, "progress": value})
+
+    runner = pipeline.RUNNERS[mode]
+    accepted = set(inspect.signature(runner).parameters)
+    kwargs = {k: v for k, v in options.items() if k in accepted}
+
+    try:
+        _update(job_id, status="running", progress=0.0, error=None)
+        result = runner(source, on_progress=on_progress, **kwargs)
+    except Exception as error:                      # noqa: BLE001 - tracé en base
+        log.exception("job %s en échec", job_id)
+        _update(job_id, status="failed", error=str(error)[:4000])
+        raise
+
+    outputs = [str(p) for p in result.outputs]
+    _update(job_id, status="done", progress=1.0, outputs=outputs)
+    return {"job_id": job_id, "outputs": outputs, "segments": result.segments}
