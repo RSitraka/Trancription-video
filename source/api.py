@@ -8,6 +8,7 @@ from pathlib import Path
 
 from fastapi import Body, FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse, JSONResponse
+from fastapi.staticfiles import StaticFiles
 
 from source import __version__, media
 from source.config import settings
@@ -23,6 +24,10 @@ app = FastAPI(
 )
 
 
+STATIC_DIR = Path(__file__).parent / "static"
+app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
+
+
 def uploads_dir(job_id: str) -> Path:
     return settings.work_dir / "uploads" / job_id
 
@@ -36,9 +41,50 @@ def startup() -> None:
         log.warning("base indisponible au démarrage : %s", error)
 
 
+@app.get("/", include_in_schema=False)
+def index() -> FileResponse:
+    """Interface web : dépôt de fichier, suivi des travaux, téléchargements."""
+    return FileResponse(STATIC_DIR / "index.html")
+
+
+@app.get("/api")
+def api_root() -> dict:
+    """Point d'entrée JSON : rappelle les routes disponibles."""
+    return {
+        "service": "Transcription Vidéo & Audio",
+        "version": __version__,
+        "docs": "/docs",
+        "interface": "/",
+        "routes": {
+            "santé": "GET /health",
+            "fichiers disponibles": "GET /media",
+            "créer un job": "POST /jobs",
+            "liste des jobs": "GET /jobs",
+            "suivi d'un job": "GET /jobs/{id}",
+            "résultat": "GET /jobs/{id}/result.{srt|vtt|json|txt|csv|mp4}",
+        },
+    }
+
+
 @app.get("/health")
 def health() -> dict:
     return {"status": "ok", "version": __version__}
+
+
+@app.get("/media")
+def list_media() -> list[dict]:
+    """Fichiers déposés dans ./media, prêts à être traités sans upload."""
+    if not settings.media_dir.exists():
+        return []
+    files = []
+    for path in sorted(settings.media_dir.iterdir()):
+        if path.is_file() and not path.name.startswith("."):
+            files.append({
+                "path": str(path),
+                "name": path.name,
+                "size_gb": round(path.stat().st_size / 1024**3, 3),
+            })
+    return files
 
 
 @app.post("/jobs", status_code=201)

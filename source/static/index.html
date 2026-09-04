@@ -1,0 +1,303 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Transcription Vidéo &amp; Audio</title>
+<style>
+  :root {
+    color-scheme: light dark;
+    --bg: #fbfbfd; --panel: #fff; --line: #e3e3e8; --ink: #1a1a1f;
+    --muted: #6b6b76; --accent: #3b5bdb; --accent-soft: #edf0fd;
+    --ok: #2f9e44; --warn: #e8590c; --err: #e03131; --radius: 10px;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #16161a; --panel: #1e1e24; --line: #2e2e37; --ink: #ececed;
+      --muted: #9a9aa5; --accent: #748ffc; --accent-soft: #232842;
+      --ok: #51cf66; --warn: #ff922b; --err: #ff6b6b;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--ink);
+    font: 15px/1.55 system-ui, -apple-system, "Segoe UI", sans-serif;
+  }
+  main { max-width: 960px; margin: 0 auto; padding: 32px 20px 80px; }
+  header { display: flex; align-items: baseline; gap: 12px; margin-bottom: 4px; }
+  h1 { font-size: 22px; margin: 0; letter-spacing: -0.01em; }
+  h2 { font-size: 15px; margin: 0 0 14px; font-weight: 600; }
+  .sub { color: var(--muted); margin: 0 0 28px; font-size: 14px; }
+  .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); display: inline-block; }
+  .dot.up { background: var(--ok); }
+  .dot.down { background: var(--err); }
+  section {
+    background: var(--panel); border: 1px solid var(--line);
+    border-radius: var(--radius); padding: 20px; margin-bottom: 18px;
+  }
+  #drop {
+    border: 1.5px dashed var(--line); border-radius: var(--radius);
+    padding: 30px 20px; text-align: center; color: var(--muted);
+    cursor: pointer; transition: background .15s, border-color .15s;
+  }
+  #drop:hover, #drop.over { border-color: var(--accent); background: var(--accent-soft); color: var(--ink); }
+  #drop strong { color: var(--ink); }
+  .options { display: flex; flex-wrap: wrap; gap: 14px; margin-top: 16px; align-items: flex-end; }
+  label { display: block; font-size: 12px; color: var(--muted); margin-bottom: 4px; }
+  select, input[type=text] {
+    background: var(--bg); color: var(--ink); border: 1px solid var(--line);
+    border-radius: 7px; padding: 7px 9px; font: inherit; font-size: 14px; min-width: 130px;
+  }
+  button {
+    background: var(--accent); color: #fff; border: 0; border-radius: 7px;
+    padding: 8px 15px; font: inherit; font-weight: 500; cursor: pointer;
+  }
+  button:hover { filter: brightness(1.08); }
+  button:disabled { opacity: .5; cursor: default; filter: none; }
+  button.ghost { background: transparent; color: var(--muted); border: 1px solid var(--line); }
+  button.ghost:hover { color: var(--ink); border-color: var(--accent); filter: none; }
+  .row {
+    display: flex; align-items: center; gap: 12px; padding: 11px 0;
+    border-top: 1px solid var(--line);
+  }
+  .row:first-of-type { border-top: 0; }
+  .grow { flex: 1; min-width: 0; }
+  .name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 14px; }
+  .meta { color: var(--muted); font-size: 12px; margin-top: 2px; }
+  .bar { height: 4px; background: var(--line); border-radius: 3px; overflow: hidden; margin-top: 7px; }
+  .bar > i { display: block; height: 100%; background: var(--accent); width: 0; transition: width .4s; }
+  .badge {
+    font-size: 11px; padding: 2px 8px; border-radius: 20px; font-weight: 600;
+    background: var(--accent-soft); color: var(--accent); white-space: nowrap;
+  }
+  .badge.done { background: color-mix(in srgb, var(--ok) 16%, transparent); color: var(--ok); }
+  .badge.failed { background: color-mix(in srgb, var(--err) 16%, transparent); color: var(--err); }
+  a.dl {
+    font-size: 12px; color: var(--accent); text-decoration: none;
+    border: 1px solid var(--line); border-radius: 5px; padding: 2px 7px;
+  }
+  a.dl:hover { border-color: var(--accent); }
+  .empty { color: var(--muted); font-size: 14px; padding: 6px 0; }
+  .err { color: var(--err); font-size: 13px; margin-top: 10px; }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <h1>Transcription Vidéo &amp; Audio</h1>
+    <span class="dot" id="health" title="état de l'API"></span>
+  </header>
+  <p class="sub">Transcription et compression de fichiers volumineux, jusqu'à plusieurs To.</p>
+
+  <section>
+    <h2>Ajouter une vidéo</h2>
+    <div id="drop">
+      <strong>Glisse un fichier ici</strong> ou clique pour parcourir<br>
+      <span style="font-size:13px">envoyé par morceaux de 64 Mo — aucune limite de taille</span>
+    </div>
+    <input type="file" id="file" hidden accept="video/*,audio/*">
+
+    <div class="options">
+      <div>
+        <label for="mode">Traitement</label>
+        <select id="mode">
+          <option value="transcribe">Transcrire</option>
+          <option value="compress">Compresser</option>
+          <option value="process">Transcrire + compresser</option>
+        </select>
+      </div>
+      <div>
+        <label for="lang">Langue</label>
+        <select id="lang">
+          <option value="auto">Détection automatique</option>
+          <option value="fr">Français</option>
+          <option value="en">Anglais</option>
+          <option value="es">Espagnol</option>
+        </select>
+      </div>
+      <div>
+        <label for="formats">Formats</label>
+        <select id="formats">
+          <option value="srt,json">SRT + JSON</option>
+          <option value="srt,vtt,json,txt">Tout</option>
+          <option value="srt">SRT seul</option>
+          <option value="txt">Texte seul</option>
+        </select>
+      </div>
+    </div>
+    <div id="upbar" class="bar" hidden><i></i></div>
+    <div id="upmsg" class="meta"></div>
+    <div id="error" class="err"></div>
+  </section>
+
+  <section>
+    <h2>Fichiers déjà présents dans <code>media/</code></h2>
+    <div id="media"><p class="empty">Chargement…</p></div>
+  </section>
+
+  <section>
+    <h2>Travaux</h2>
+    <div id="jobs"><p class="empty">Chargement…</p></div>
+  </section>
+</main>
+
+<script>
+const CHUNK = 64 * 1024 * 1024;               // 64 Mo par morceau
+const $ = (id) => document.getElementById(id);
+const gb = (n) => n >= 1 ? n.toFixed(2) + ' Go' : (n * 1024).toFixed(0) + ' Mo';
+
+const STATUS = {
+  pending: 'en attente', uploading: 'envoi', queued: 'en file', running: 'démarrage',
+  extracting: 'extraction audio', transcribing: 'transcription', ocr: 'analyse des images',
+  compressing: 'compression', done: 'terminé', failed: 'échec',
+};
+
+function options() {
+  return {
+    mode: $('mode').value,
+    options: {
+      language: $('lang').value,
+      formats: $('formats').value.split(','),
+    },
+  };
+}
+
+function fail(message) {
+  $('error').textContent = message || '';
+}
+
+async function json(url, init) {
+  const response = await fetch(url, init);
+  const body = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(body.detail || `${response.status} ${response.statusText}`);
+  return body;
+}
+
+// --- Envoi par morceaux : la mémoire du navigateur reste constante -----------
+async function upload(file) {
+  fail('');
+  $('upbar').hidden = false;
+  const bar = $('upbar').firstElementChild;
+  const total = Math.ceil(file.size / CHUNK);
+
+  try {
+    const job = await json('/jobs', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ filename: file.name, size: file.size, ...options() }),
+    });
+
+    for (let i = 0; i < total; i++) {
+      const slice = file.slice(i * CHUNK, Math.min((i + 1) * CHUNK, file.size));
+      let sent = false;
+      for (let attempt = 0; attempt < 3 && !sent; attempt++) {          // reprise si coupure
+        try {
+          await fetch(`/jobs/${job.id}/parts/${i}`, { method: 'PUT', body: slice });
+          sent = true;
+        } catch (error) { if (attempt === 2) throw error; }
+      }
+      const percent = ((i + 1) / total) * 100;
+      bar.style.width = percent + '%';
+      $('upmsg').textContent = `Envoi de ${file.name} — morceau ${i + 1}/${total} (${percent.toFixed(0)} %)`;
+    }
+
+    $('upmsg').textContent = 'Assemblage du fichier…';
+    await json(`/jobs/${job.id}/complete`, { method: 'POST' });
+    $('upmsg').textContent = `${file.name} envoyé, traitement lancé.`;
+  } catch (error) {
+    fail('Échec de l\'envoi : ' + error.message);
+    $('upmsg').textContent = '';
+  } finally {
+    setTimeout(() => { $('upbar').hidden = true; bar.style.width = '0'; }, 1200);
+    refresh();
+  }
+}
+
+async function launch(path) {
+  fail('');
+  try {
+    await json('/jobs', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ path, ...options() }),
+    });
+    refresh();
+  } catch (error) { fail('Impossible de lancer : ' + error.message); }
+}
+
+async function remove(id) {
+  await fetch('/jobs/' + id, { method: 'DELETE' });
+  refresh();
+}
+
+// --- Rendu -------------------------------------------------------------------
+function renderMedia(files) {
+  if (!files.length) {
+    $('media').innerHTML = '<p class="empty">Aucun fichier. Dépose une vidéo dans le dossier '
+      + '<code>media/</code> du projet, ou envoie-la ci-dessus.</p>';
+    return;
+  }
+  $('media').innerHTML = files.map((f) => `
+    <div class="row">
+      <div class="grow">
+        <div class="name" title="${f.path}">${f.name}</div>
+        <div class="meta">${gb(f.size_gb)}</div>
+      </div>
+      <button data-path="${encodeURIComponent(f.path)}">Lancer</button>
+    </div>`).join('');
+  $('media').querySelectorAll('button').forEach((b) =>
+    b.onclick = () => launch(decodeURIComponent(b.dataset.path)));
+}
+
+function renderJobs(jobs) {
+  if (!jobs.length) { $('jobs').innerHTML = '<p class="empty">Aucun travail en cours.</p>'; return; }
+  $('jobs').innerHTML = jobs.map((j) => {
+    const percent = Math.round((j.progress || 0) * 100);
+    const state = ['done', 'failed'].includes(j.status) ? j.status : '';
+    const links = (j.outputs || []).map((o) => {
+      const ext = o.split('.').pop();
+      return `<a class="dl" href="/jobs/${j.id}/result.${ext}">${ext.toUpperCase()}</a>`;
+    }).join(' ');
+    return `
+      <div class="row">
+        <div class="grow">
+          <div class="name" title="${j.filename}">${j.filename}</div>
+          <div class="meta">${j.error ? j.error : (STATUS[j.status] || j.status) + ' · ' + percent + ' %'}</div>
+          ${state === 'done' ? '' : `<div class="bar"><i style="width:${percent}%"></i></div>`}
+        </div>
+        <span class="badge ${state}">${STATUS[j.status] || j.status}</span>
+        ${links}
+        <button class="ghost" data-id="${j.id}">Supprimer</button>
+      </div>`;
+  }).join('');
+  $('jobs').querySelectorAll('button[data-id]').forEach((b) => b.onclick = () => remove(b.dataset.id));
+}
+
+async function refresh() {
+  try {
+    const [health, media, jobs] = await Promise.all([
+      fetch('/health').then((r) => r.ok), json('/media'), json('/jobs?limit=25'),
+    ]);
+    $('health').className = 'dot ' + (health ? 'up' : 'down');
+    renderMedia(media);
+    renderJobs(jobs);
+  } catch (error) {
+    $('health').className = 'dot down';
+  }
+}
+
+// --- Glisser-déposer ---------------------------------------------------------
+const drop = $('drop');
+drop.onclick = () => $('file').click();
+$('file').onchange = (e) => e.target.files[0] && upload(e.target.files[0]);
+['dragenter', 'dragover'].forEach((type) =>
+  drop.addEventListener(type, (e) => { e.preventDefault(); drop.classList.add('over'); }));
+['dragleave', 'drop'].forEach((type) =>
+  drop.addEventListener(type, (e) => { e.preventDefault(); drop.classList.remove('over'); }));
+drop.addEventListener('drop', (e) => e.dataTransfer.files[0] && upload(e.dataTransfer.files[0]));
+
+refresh();
+setInterval(refresh, 2500);
+</script>
+</body>
+</html>

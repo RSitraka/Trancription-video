@@ -23,6 +23,7 @@ Le projet répond à deux besoins distincts, volontairement découplés :
 - [Prérequis](#prérequis)
 - [Démarrage rapide](#démarrage-rapide)
 - [Composition des services](#composition-des-services)
+- [Interface web](#interface-web)
 - [Utilisation](#utilisation)
 - [Réduction de taille](#réduction-de-taille)
 - [Traitement par chunks](#traitement-par-chunks)
@@ -212,6 +213,49 @@ saturent la VRAM (~5 Go chacun en `float16`).
 
 ---
 
+## Interface web
+
+Ouvrir <http://localhost:8100> (port `API_PORT`). Une page unique, servie par
+FastAPI — ni Node, ni build, ni dépendance supplémentaire.
+
+```
+┌──────────────────────────────────────────────────────────┐
+│  Transcription Vidéo & Audio                        ●    │
+├──────────────────────────────────────────────────────────┤
+│  Ajouter une vidéo                                       │
+│  ┌────────────────────────────────────────────────────┐  │
+│  │      Glisse un fichier ici ou clique pour parcourir│  │
+│  │      envoyé par morceaux de 64 Mo — sans limite    │  │
+│  └────────────────────────────────────────────────────┘  │
+│  [Transcrire ▾]  [Détection auto ▾]  [SRT + JSON ▾]      │
+├──────────────────────────────────────────────────────────┤
+│  Fichiers déjà présents dans media/                      │
+│  cours.mp4                        0,68 Go     [Lancer]   │
+├──────────────────────────────────────────────────────────┤
+│  Travaux                                                 │
+│  cours.mp4      transcription · 42 %    [SRT] [JSON] [×] │
+│  ▓▓▓▓▓▓▓▓▓░░░░░░░░░░░░                                   │
+└──────────────────────────────────────────────────────────┘
+```
+
+Elle permet de :
+
+- **déposer un fichier** par glisser-déposer — le navigateur le découpe en
+  morceaux de 64 Mo envoyés un par un, avec 3 tentatives par morceau ; la
+  mémoire du navigateur ne dépend donc pas de la taille du fichier ;
+- **lancer un fichier déjà dans `media/`** sans le réenvoyer ;
+- choisir le **traitement** (transcrire / compresser / les deux), la **langue**
+  (détection automatique par défaut) et les **formats** de sortie ;
+- suivre la **progression** de chaque travail, rafraîchie toutes les 2,5 s ;
+- **télécharger** les sous-titres produits ou supprimer un travail.
+
+Le thème suit celui du système (clair ou sombre).
+
+Fichier : `source/static/index.html`. Il est monté en bind mount, donc modifiable
+sans reconstruire l'image — un simple rechargement de la page suffit.
+
+---
+
 ## Utilisation
 
 ### Ligne de commande
@@ -256,7 +300,10 @@ Exposée dès `docker compose up`, sur le port `API_PORT` (`.env`).
 
 | Méthode | Route | Rôle |
 |---|---|---|
+| `GET` | `/` | interface web |
+| `GET` | `/api` | index JSON des routes |
 | `GET` | `/health` | sonde de vie |
+| `GET` | `/media` | fichiers présents dans `media/` |
 | `POST` | `/jobs` | créer un job (fichier local ou upload) |
 | `PUT` | `/jobs/{id}/parts/{n}` | envoyer un morceau d'upload |
 | `GET` | `/jobs/{id}/parts` | morceaux déjà reçus (reprise) |
@@ -507,7 +554,9 @@ transcription_video_audio/
     ├── pipeline.py         # orchestration, partagée CLI ↔ workers
     ├── db.py               # modèles SQLAlchemy (jobs, parts)
     ├── api.py              # FastAPI, upload chunké, progression
-    └── tasks.py            # workers Celery
+    ├── tasks.py            # workers Celery
+    └── static/
+        └── index.html      # interface web (page unique, sans build)
 ```
 
 ---
@@ -632,7 +681,7 @@ docker compose exec worker df -h /data
 - [ ] Diarisation (identification des locuteurs)
 - [ ] Traduction automatique des sous-titres
 - [ ] Indexation vectorielle (Qdrant) pour la recherche sémantique
-- [ ] Frontend Next.js : lecteur synchronisé avec la transcription
+- [ ] Lecteur vidéo synchronisé avec la transcription dans l'interface
 - [ ] Stockage objet S3 / MinIO pour les fichiers sources
 - [ ] Image multi-arch (`linux/amd64`, `linux/arm64`) publiée sur GHCR
 - [ ] Manifests Kubernetes pour un déploiement multi-GPU
