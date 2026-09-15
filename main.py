@@ -35,6 +35,21 @@ def build_parser() -> argparse.ArgumentParser:
     info = subparsers.add_parser("info", help="afficher les métadonnées du fichier")
     info.add_argument("source", type=Path)
 
+    export = subparsers.add_parser(
+        "export", help="regénérer des formats depuis un .json déjà produit")
+    export.add_argument("source", type=Path, help="fichier .json de transcription")
+    export.add_argument("--formats", default="rag", help="srt,vtt,json,txt,csv,rag")
+    export.add_argument("--out", type=Path, default=None)
+
+    index = subparsers.add_parser("index", help="indexer un .rag.jsonl dans Qdrant")
+    index.add_argument("source", type=Path, help="fichier .rag.jsonl")
+    index.add_argument("--collection", default=None)
+
+    search = subparsers.add_parser("search", help="rechercher dans les transcriptions")
+    search.add_argument("question", help="question en langage naturel")
+    search.add_argument("--limit", type=int, default=5)
+    search.add_argument("--collection", default=None)
+
     transcribe = subparsers.add_parser("transcribe", help="transcrire uniquement")
     common(transcribe)
     transcribe.add_argument("--lang", default=None,
@@ -45,7 +60,11 @@ def build_parser() -> argparse.ArgumentParser:
     compress = subparsers.add_parser("compress", help="compresser uniquement")
     common(compress)
     compress.add_argument("--target-gb", type=float, default=None, help="taille visée")
+    compress.add_argument("--max-mb", type=float, default=None,
+                          help="taille maximale garantie en Mo (ex. 300 pour le RAG)")
     compress.add_argument("--codec", default=None, help="libx265, hevc_nvenc, ...")
+    compress.add_argument("--no-split", action="store_true",
+                          help="un seul fichier même si la vidéo est trop longue")
 
     process = subparsers.add_parser("process", help="transcrire puis compresser")
     common(process)
@@ -53,6 +72,7 @@ def build_parser() -> argparse.ArgumentParser:
     process.add_argument("--formats", default="srt,json")
     process.add_argument("--ocr", action="store_true")
     process.add_argument("--target-gb", type=float, default=None)
+    process.add_argument("--max-mb", type=float, default=None)
 
     return parser
 
@@ -86,6 +106,24 @@ def show_info(source: Path) -> int:
     return 0
 
 
+def reexport(args) -> int:
+    """Produit d'autres formats à partir d'un JSON existant, sans retranscrire."""
+    import json
+
+    from source import export
+    from source.transcribe import Segment
+
+    payload = json.loads(args.source.read_text(encoding="utf-8"))
+    segments = [Segment(**item) for item in payload["segments"]]
+    destination = (args.out or args.source.parent) / args.source.stem
+    formats = [f.strip() for f in args.formats.split(",") if f.strip()]
+
+    for path in export.write(segments, destination, formats):
+        print(f"  → {path}")
+    print(f"{len(segments)} segments réexportés.")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     logging.basicConfig(
@@ -95,6 +133,24 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.command == "info":
         return show_info(args.source)
+
+    if args.command == "export":
+        return reexport(args)
+
+    if args.command == "index":
+        from source import rag
+
+        count = rag.index(args.source, args.collection)
+        print(f"{count} passages indexés.")
+        return 0
+
+    if args.command == "search":
+        from source import rag
+
+        for hit in rag.search(args.question, args.limit, args.collection):
+            print(f"\n[{hit['score']}] {hit['timecode']}  ({hit['source']})")
+            print("  " + hit["text"][:400] + ("…" if len(hit["text"]) > 400 else ""))
+        return 0
 
     if not args.source.exists():
         print(f"Fichier introuvable : {args.source}", file=sys.stderr)
@@ -111,7 +167,9 @@ def main(argv: list[str] | None = None) -> int:
         kwargs["ocr"] = args.ocr or None
     if args.command in ("compress", "process"):
         kwargs["target_gb"] = args.target_gb
+        kwargs["max_mb"] = args.max_mb
     if args.command == "compress":
+        kwargs["split"] = not args.no_split
         kwargs["codec"] = args.codec
 
     try:

@@ -12,12 +12,16 @@ class Settings(BaseSettings):
     )
 
     # --- Transcription ---
-    whisper_model: str = "large-v3"
+    # large-v3-turbo : ~6x plus rapide que large-v3, qualité très proche en fr/en.
+    whisper_model: str = "large-v3-turbo"
     whisper_device: str = "cpu"
     whisper_compute_type: str = "int8"
     language: str | None = "fr"
     vad_filter: bool = True
     beam_size: int = 5
+    # Passages transcrits en parallèle sur la carte (0 = un par un). Sur GPU,
+    # 16 remplit une carte de 12 Go et divise encore le temps par ~3.
+    whisper_batch_size: int = 0
 
     # --- Découpage ---
     chunk_duration: int = 1800
@@ -35,6 +39,15 @@ class Settings(BaseSettings):
     crf: int = 24
     preset: str = "medium"
     audio_bitrate: str = "128k"
+    # Débit total (kbps) sous lequel une vidéo est découpée en parties plutôt
+    # que compressée en un seul fichier : 1000 kbps ≈ 720p lisible.
+    split_min_kbps: int = 1000
+    # Encodages NVENC simultanés pour un même fichier (RTX grand public : 8 max).
+    encode_jobs: int = 4
+
+    # --- Export RAG ---
+    rag_chunk_chars: int = 1200        # ~300 mots : taille de passage usuelle
+    rag_overlap_segments: int = 1      # recouvrement pour ne pas couper une idée
 
     # --- Images explicatives ---
     enable_ocr: bool = False
@@ -44,6 +57,9 @@ class Settings(BaseSettings):
     # --- Services ---
     database_url: str = "postgresql://transcription:transcription@postgres:5432/transcription"
     redis_url: str = "redis://redis:6379/0"
+    qdrant_url: str = "http://qdrant:6333"
+    qdrant_collection: str = "transcriptions"
+    embedding_model: str = "intfloat/multilingual-e5-large"
 
     @property
     def sqlalchemy_url(self) -> str:

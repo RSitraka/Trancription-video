@@ -21,6 +21,12 @@ celery_app.conf.update(
     worker_prefetch_multiplier=1,      # un job lourd à la fois par worker
     task_time_limit=None,              # 1 To peut prendre des heures
     result_expires=86400,
+    # Redis considère un message « perdu » passé ce délai et le redistribue.
+    # La valeur par défaut (1 h) est plus courte qu'un job de transcription :
+    # la tâche serait relancée en double alors qu'elle tourne encore.
+    # 30 jours : un fichier de 2 To découpé en parties peut tourner plusieurs
+    # jours, et une redistribution lancerait un second encodage en parallèle.
+    broker_transport_options={"visibility_timeout": 30 * 86400},
 )
 
 
@@ -51,9 +57,14 @@ def process_job(self, job_id: str) -> dict:
         _update(job_id, status="failed", error=f"fichier absent : {source}")
         raise FileNotFoundError(source)
 
+    # Lu ici : le contexte Celery est propre au thread, et la compression
+    # rapporte sa progression depuis plusieurs threads d'encodage.
+    task_id = self.request.id
+
     def on_progress(stage: str, value: float) -> None:
         _update(job_id, status=stage, progress=value)
-        self.update_state(state="PROGRESS", meta={"stage": stage, "progress": value})
+        self.update_state(task_id=task_id, state="PROGRESS",
+                          meta={"stage": stage, "progress": value})
 
     runner = pipeline.RUNNERS[mode]
     accepted = set(inspect.signature(runner).parameters)

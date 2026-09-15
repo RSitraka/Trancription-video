@@ -129,6 +129,29 @@ def extract_audio(
     return destination
 
 
+# Extensions reconnues lors du parcours d'un dossier. Un fichier non listé est
+# ignoré plutôt que confié à ffmpeg : dans un dossier de plusieurs To, les
+# .txt, .jpg et autres .nfo sont nombreux.
+AUDIO_EXTENSIONS = {
+    ".mp3", ".wav", ".m4a", ".flac", ".ogg", ".opus", ".aac", ".wma",
+    ".aiff", ".aif", ".amr", ".mka", ".weba",
+}
+VIDEO_EXTENSIONS = {
+    ".mp4", ".mkv", ".avi", ".mov", ".webm", ".m4v", ".mpg", ".mpeg",
+    ".wmv", ".flv", ".3gp", ".3g2", ".ts", ".mts", ".m2ts", ".ogv",
+    ".vob", ".asf", ".rm", ".rmvb", ".divx", ".f4v",
+}
+MEDIA_EXTENSIONS = AUDIO_EXTENSIONS | VIDEO_EXTENSIONS
+
+
+def iter_media(folder: Path) -> Iterable[Path]:
+    """Fichiers audio/vidéo d'un dossier et de ses sous-dossiers, triés."""
+    for path in sorted(folder.rglob("*")):
+        if (path.is_file() and path.suffix.lower() in MEDIA_EXTENSIONS
+                and not any(part.startswith(".") for part in path.relative_to(folder).parts)):
+            yield path
+
+
 def format_timestamp(seconds: float, separator: str = ",") -> str:
     """Formate en HH:MM:SS,mmm (SRT) ou HH:MM:SS.mmm (VTT)."""
     if seconds < 0:

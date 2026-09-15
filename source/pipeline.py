@@ -47,6 +47,22 @@ def _noop(stage: str, progress: float) -> None:
     pass
 
 
+def title_dir(output_dir: Path, source: Path, subdir: str | None = None) -> Path:
+    """Dossier des fichiers produits pour une vidéo : `out/[sous-dossier/]<titre>/`.
+
+    Parties compressées et sous-titres d'une même vidéo restent ensemble au
+    lieu de se mélanger à ceux des autres vidéos."""
+    return _inside(output_dir, str(Path(subdir or "") / source.stem))
+
+
+def _inside(output_dir: Path, subdir: str) -> Path:
+    target = (output_dir / subdir).resolve()
+    if not target.is_relative_to(output_dir.resolve()):
+        raise ValueError(f"sous-dossier de sortie invalide : {subdir}")
+    target.mkdir(parents=True, exist_ok=True)
+    return target
+
+
 def transcription(
     source: Path,
     output_dir: Path | None = None,
@@ -54,12 +70,18 @@ def transcription(
     language: str | None = None,
     formats: list[str] | None = None,
     ocr: bool | None = None,
+    subdir: str | None = None,
     on_progress: ProgressHook = _noop,
 ) -> Result:
-    """Vidéo/audio → fichiers de sous-titres horodatés."""
+    """Vidéo/audio → fichiers de sous-titres horodatés.
+
+    Les sous-titres vont dans le dossier au nom de la vidéo, à côté des parties
+    compressées ; `subdir` évite que deux « intro.mp4 » de dossiers différents
+    s'écrasent.
+    """
     settings.ensure_dirs()
-    output_dir = output_dir or settings.output_dir
-    work_dir = work_dir or settings.work_dir / source.stem
+    output_dir = title_dir(output_dir or settings.output_dir, source, subdir)
+    work_dir = work_dir or settings.work_dir / (subdir or "") / source.stem
     formats = formats or ["srt", "json"]
 
     info = media.probe(source)
@@ -71,15 +93,18 @@ def transcription(
         on_progress=lambda p: on_progress("transcribing", p),
     )
 
+    captures: list = []
     use_ocr = settings.enable_ocr if ocr is None else ocr
     if use_ocr and info.has_video:
         from source import frames
 
         on_progress("ocr", 0.0)
-        segments = frames.analyze(source, work_dir, segments)
+        segments, captures = frames.analyze(source, output_dir, segments)
 
     result.segments = len(segments)
-    result.outputs = export.write(segments, output_dir / source.stem, formats)
+    result.outputs = export.write(
+        segments, output_dir / source.stem, formats, frames=captures
+    )
     on_progress("done", 1.0)
 
     log.info("%d segments écrits dans %s", len(segments), output_dir)
@@ -91,30 +116,39 @@ def compression(
     output_dir: Path | None = None,
     target_gb: float | None = None,
     codec: str | None = None,
+    max_mb: float | None = None,
+    split: bool = True,
+    subdir: str | None = None,
     on_progress: ProgressHook = _noop,
 ) -> Result:
-    """Ré-encode la vidéo pour tenir sous la taille visée."""
+    """Ré-encode la vidéo (ou l'audio seul) pour tenir sous la taille visée.
+
+    `subdir` reproduit l'arborescence d'un dossier source dans les sorties.
+    """
     settings.ensure_dirs()
-    output_dir = output_dir or settings.output_dir
+    output_dir = title_dir(output_dir or settings.output_dir, source, subdir)
 
     info = media.probe(source)
-    if not info.has_video:
+    if not info.has_video and max_mb is None:
         raise ValueError(f"{source} ne contient pas de piste vidéo à compresser")
 
-    destination = output_dir / f"{source.stem}_compressed.mp4"
-    compress_module.compress(
+    extension = "mp4" if info.has_video else "m4a"
+    destination = output_dir / f"{source.stem}_compressed.{extension}"
+    outputs = compress_module.compress(
         source, destination,
         target_gb=target_gb if target_gb is not None else settings.target_size_gb,
         codec=codec,
+        max_mb=max_mb,
+        split=split,
         on_progress=lambda p: on_progress("compressing", p),
     )
 
     on_progress("done", 1.0)
     return Result(
         source=source,
-        outputs=[destination],
+        outputs=outputs,
         original_bytes=info.size,
-        final_bytes=media.probe(destination).size,
+        final_bytes=sum(p.stat().st_size for p in outputs),
     )
 
 
@@ -125,16 +159,22 @@ def process(
     language: str | None = None,
     formats: list[str] | None = None,
     ocr: bool | None = None,
+    max_mb: float | None = None,
+    split: bool = True,
+    subdir: str | None = None,
     on_progress: ProgressHook = _noop,
 ) -> Result:
     """Transcription puis compression, sur le même fichier source."""
+    # La fin de la transcription n'est pas la fin du job : pas de « done » à mi-course.
     transcribed = transcription(
         source, output_dir=output_dir, language=language,
-        formats=formats, ocr=ocr,
-        on_progress=lambda stage, p: on_progress(stage, p * 0.5),
+        formats=formats, ocr=ocr, subdir=subdir,
+        on_progress=lambda stage, p: on_progress(
+            "compressing" if stage == "done" else stage, p * 0.5),
     )
     compressed = compression(
-        source, output_dir=output_dir, target_gb=target_gb,
+        source, output_dir=output_dir, target_gb=target_gb, max_mb=max_mb,
+        split=split, subdir=subdir,
         on_progress=lambda stage, p: on_progress(stage, 0.5 + p * 0.5),
     )
     return Result(

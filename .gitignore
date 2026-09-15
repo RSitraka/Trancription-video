@@ -1,0 +1,32 @@
+# Environnement
+.env
+.venv
+venv
+
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Données et sorties
+data/
+models/
+frames/
+out/
+media/*
+!media/.gitkeep
+
+# Médias et transcriptions générés
+*.mp4
+*.mkv
+*.mov
+*.wav
+*.mp3
+*.srt
+*.vtt
+
+# Sorties de compression / transcription
+output/*
+!output/.gitkeep

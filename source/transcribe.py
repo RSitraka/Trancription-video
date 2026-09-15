@@ -14,6 +14,7 @@ from source.config import settings
 log = logging.getLogger(__name__)
 
 _MODEL = None  # chargé une seule fois par processus (~5 Go de VRAM en float16)
+_BATCHED = None
 
 
 @dataclass(slots=True)
@@ -54,6 +55,17 @@ def get_model():
     return _MODEL
 
 
+def get_pipeline():
+    """Transcription par lots : les passages découpés par le VAD sont décodés
+    ensemble au lieu d'un par un, ce qui occupe enfin toute la carte."""
+    global _BATCHED
+    if _BATCHED is None:
+        from faster_whisper import BatchedInferencePipeline
+
+        _BATCHED = BatchedInferencePipeline(model=get_model())
+    return _BATCHED
+
+
 def transcribe_file(path: Path, language: str | None = None) -> list[Segment]:
     """Transcrit un fichier audio court (un morceau) en segments horodatés.
 
@@ -65,12 +77,21 @@ def transcribe_file(path: Path, language: str | None = None) -> list[Segment]:
     if requested in ("auto", ""):
         requested = None
 
-    segments, info = get_model().transcribe(
-        str(path),
-        language=requested,
-        vad_filter=settings.vad_filter,   # saute les silences : gain de temps net
-        beam_size=settings.beam_size,
-    )
+    if settings.whisper_batch_size > 0:
+        # Le mode par lots s'appuie toujours sur le VAD pour découper l'audio.
+        segments, info = get_pipeline().transcribe(
+            str(path),
+            language=requested,
+            beam_size=settings.beam_size,
+            batch_size=settings.whisper_batch_size,
+        )
+    else:
+        segments, info = get_model().transcribe(
+            str(path),
+            language=requested,
+            vad_filter=settings.vad_filter,   # saute les silences : gain de temps net
+            beam_size=settings.beam_size,
+        )
     if requested is None:
         log.info("Langue détectée : %s (%.1f %%)",
                  info.language, info.language_probability * 100)
@@ -130,6 +151,11 @@ def transcribe_media(
 
     plan = chunker.plan(audio, work_dir, duration=info.duration)
     groups: list[list[Segment]] = []
+
+    # Sur une reprise, annoncer d'emblée ce qui est déjà fait : sinon la barre
+    # affiche 0 % pendant tout le premier morceau et paraît bloquée.
+    if on_progress and plan.progress:
+        on_progress(0.1 + 0.9 * plan.progress)
 
     for chunk in plan.chunks:
         cache = work_dir / f"chunk_{chunk.index:04d}.json"

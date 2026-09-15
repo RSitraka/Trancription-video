@@ -8,7 +8,7 @@ cd "$(dirname "$0")/.."
 PORT=$(grep -E '^API_PORT=' .env 2>/dev/null | cut -d= -f2 | awk '{print $1}')
 PORT=${PORT:-8000}
 MODEL=${WHISPER_MODEL:-tiny}
-CLIP=/data/out/_smoke.mp4
+CLIP=/data/tmp/_smoke.mp4   # une source doit être sous MEDIA_PATH ou le dossier de travail
 
 pass=0; fail=0
 check() {  # check <libellé> <commande...>
@@ -42,13 +42,13 @@ check "génération" cli ffmpeg -hide_banner -loglevel error -y \
 echo; echo "3. Ligne de commande"
 check "info"       cli python main.py info "$CLIP"
 check "transcribe" cli python main.py transcribe "$CLIP" --lang fr --formats srt,json,txt
-check "sortie SRT créée"  cli test -f /data/out/_smoke.srt
-check "sortie JSON remplie" cli test -s /data/out/_smoke.json
+check "sortie SRT créée"  cli test -f /data/out/_smoke/_smoke.srt
+check "sortie JSON remplie" cli test -s /data/out/_smoke/_smoke.json
 check "compress"   cli python main.py compress "$CLIP"
 check "fichier compressé plus petit" \
     cli python -c "
 import os, sys
-src = os.path.getsize('$CLIP'); dst = os.path.getsize('/data/out/_smoke_compressed.mp4')
+src = os.path.getsize('$CLIP'); dst = os.path.getsize('/data/out/_smoke/_smoke_compressed.mp4')
 print(f'{src} -> {dst} octets')
 sys.exit(0 if dst < src else 1)"
 
@@ -92,7 +92,7 @@ check "job d'upload terminé ($STATUS)" test "$STATUS" = done
 echo; echo "6. Nettoyage"
 for j in $ID $UID_; do [ -n "$j" ] && api -X DELETE "localhost:$PORT/jobs/$j" >/dev/null; done
 check "fichiers temporaires supprimés" \
-    cli sh -c 'rm -f /data/out/_smoke* && ! ls /data/out/_smoke* >/dev/null 2>&1'
+    cli sh -c 'rm -rf /data/out/_smoke* /data/tmp/_smoke* && ! ls /data/out/_smoke* /data/tmp/_smoke* >/dev/null 2>&1'
 rm -rf /tmp/_smoke_parts /tmp/_smoke_out.mp4 /tmp/_smoke.log
 
 echo

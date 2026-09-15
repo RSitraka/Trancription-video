@@ -3,17 +3,17 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Transcription Vidéo &amp; Audio</title>
+<title>Compression vidéo pour le RAG</title>
 <style>
   :root {
     color-scheme: light dark;
-    --bg: #fbfbfd; --panel: #fff; --line: #e3e3e8; --ink: #1a1a1f;
+    --bg: #f6f6f9; --panel: #fff; --sunk: #f1f1f5; --line: #e3e3ea; --ink: #1a1a1f;
     --muted: #6b6b76; --accent: #3b5bdb; --accent-soft: #edf0fd;
-    --ok: #2f9e44; --warn: #e8590c; --err: #e03131; --radius: 10px;
+    --ok: #2f9e44; --warn: #d9480f; --err: #e03131; --radius: 12px;
   }
   @media (prefers-color-scheme: dark) {
     :root {
-      --bg: #16161a; --panel: #1e1e24; --line: #2e2e37; --ink: #ececed;
+      --bg: #121216; --panel: #1b1b21; --sunk: #16161b; --line: #2c2c35; --ink: #ececed;
       --muted: #9a9aa5; --accent: #748ffc; --accent-soft: #232842;
       --ok: #51cf66; --warn: #ff922b; --err: #ff6b6b;
     }
@@ -21,283 +21,729 @@
   * { box-sizing: border-box; }
   body {
     margin: 0; background: var(--bg); color: var(--ink);
-    font: 15px/1.55 system-ui, -apple-system, "Segoe UI", sans-serif;
+    font: 15px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif;
   }
-  main { max-width: 960px; margin: 0 auto; padding: 32px 20px 80px; }
-  header { display: flex; align-items: baseline; gap: 12px; margin-bottom: 4px; }
-  h1 { font-size: 22px; margin: 0; letter-spacing: -0.01em; }
-  h2 { font-size: 15px; margin: 0 0 14px; font-weight: 600; }
-  .sub { color: var(--muted); margin: 0 0 28px; font-size: 14px; }
-  .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); display: inline-block; }
+  main { max-width: 980px; margin: 0 auto; padding: 28px 20px 80px; }
+  code { font-size: .9em; background: var(--sunk); padding: 1px 6px; border-radius: 5px; word-break: break-all; }
+  [hidden] { display: none !important; }
+
+  header { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; margin-bottom: 20px; }
+  h1 { font-size: 21px; margin: 0; letter-spacing: -0.01em; }
+  .sub { color: var(--muted); font-size: 13px; margin: 2px 0 0; }
+  .status {
+    margin-left: auto; display: inline-flex; align-items: center; gap: 7px; font-size: 12px;
+    color: var(--muted); background: var(--panel); border: 1px solid var(--line); border-radius: 20px; padding: 4px 11px;
+  }
+  .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); }
   .dot.up { background: var(--ok); }
   .dot.down { background: var(--err); }
-  section {
-    background: var(--panel); border: 1px solid var(--line);
-    border-radius: var(--radius); padding: 20px; margin-bottom: 18px;
+
+  section { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 18px 20px; margin-bottom: 16px; }
+  .head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 12px; }
+  h2 { font-size: 15px; margin: 0; font-weight: 600; }
+  .grow { flex: 1; min-width: 0; }
+  .muted { color: var(--muted); font-size: 12px; }
+
+  /* Réglages */
+  .settings { display: flex; flex-wrap: wrap; gap: 10px 28px; align-items: center; }
+  .size { display: flex; align-items: center; gap: 8px; font-size: 14px; }
+  .size input {
+    width: 92px; background: var(--sunk); color: var(--ink); border: 1px solid var(--line);
+    border-radius: 8px; padding: 7px 10px; font: inherit; font-weight: 600; text-align: right;
   }
-  #drop {
-    border: 1.5px dashed var(--line); border-radius: var(--radius);
-    padding: 30px 20px; text-align: center; color: var(--muted);
-    cursor: pointer; transition: background .15s, border-color .15s;
-  }
-  #drop:hover, #drop.over { border-color: var(--accent); background: var(--accent-soft); color: var(--ink); }
-  #drop strong { color: var(--ink); }
-  .options { display: flex; flex-wrap: wrap; gap: 14px; margin-top: 16px; align-items: flex-end; }
-  label { display: block; font-size: 12px; color: var(--muted); margin-bottom: 4px; }
-  select, input[type=text] {
-    background: var(--bg); color: var(--ink); border: 1px solid var(--line);
-    border-radius: 7px; padding: 7px 9px; font: inherit; font-size: 14px; min-width: 130px;
-  }
+  .size input:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
+  .lang { display: inline-flex; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+  .lang button { background: transparent; color: var(--muted); border-radius: 0; padding: 6px 14px; }
+  .lang button + button { border-left: 1px solid var(--line); }
+  .lang button[aria-pressed=true] { background: var(--accent-soft); color: var(--accent); }
+  .lang button:hover { filter: none; color: var(--ink); }
+  .check { display: flex; align-items: center; gap: 8px; font-size: 14px; cursor: pointer; }
+  .check input { accent-color: var(--accent); width: 16px; height: 16px; }
+
   button {
-    background: var(--accent); color: #fff; border: 0; border-radius: 7px;
-    padding: 8px 15px; font: inherit; font-weight: 500; cursor: pointer;
+    background: var(--accent); color: #fff; border: 0; border-radius: 8px; padding: 7px 14px;
+    font: inherit; font-size: 13px; font-weight: 500; cursor: pointer; white-space: nowrap;
   }
   button:hover { filter: brightness(1.08); }
   button:disabled { opacity: .5; cursor: default; filter: none; }
   button.ghost { background: transparent; color: var(--muted); border: 1px solid var(--line); }
-  button.ghost:hover { color: var(--ink); border-color: var(--accent); filter: none; }
-  .row {
-    display: flex; align-items: center; gap: 12px; padding: 11px 0;
-    border-top: 1px solid var(--line);
-  }
-  .row:first-of-type { border-top: 0; }
-  .grow { flex: 1; min-width: 0; }
-  .name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 14px; }
-  .meta { color: var(--muted); font-size: 12px; margin-top: 2px; }
-  .bar { height: 4px; background: var(--line); border-radius: 3px; overflow: hidden; margin-top: 7px; }
-  .bar > i { display: block; height: 100%; background: var(--accent); width: 0; transition: width .4s; }
-  .badge {
-    font-size: 11px; padding: 2px 8px; border-radius: 20px; font-weight: 600;
-    background: var(--accent-soft); color: var(--accent); white-space: nowrap;
-  }
-  .badge.done { background: color-mix(in srgb, var(--ok) 16%, transparent); color: var(--ok); }
-  .badge.failed { background: color-mix(in srgb, var(--err) 16%, transparent); color: var(--err); }
-  a.dl {
-    font-size: 12px; color: var(--accent); text-decoration: none;
-    border: 1px solid var(--line); border-radius: 5px; padding: 2px 7px;
-  }
-  a.dl:hover { border-color: var(--accent); }
-  .empty { color: var(--muted); font-size: 14px; padding: 6px 0; }
+  button.ghost:hover { color: var(--ink); border-color: var(--accent); }
+  button.icon { padding: 4px 9px; }
+  button.danger:hover { color: var(--err); border-color: var(--err); }
+  button.destroy { background: var(--err); }
+
+  dialog.remove { border: 1px solid var(--line); border-radius: 12px; padding: 20px; max-width: min(460px, calc(100vw - 32px));
+    background: var(--panel); color: var(--ink); }
+  dialog.remove::backdrop { background: rgba(0, 0, 0, .5); }
+  dialog.remove h3 { margin: 0 0 8px; font-size: 16px; overflow-wrap: anywhere; }
+  dialog.remove p { margin: 0 0 16px; color: var(--muted); font-size: 13px; line-height: 1.5; }
+  dialog.remove .actions { display: flex; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
+  dialog.remove .alert { margin: 0 0 16px; padding: 10px 12px; border-radius: 8px; font-size: 13px; line-height: 1.5;
+    color: var(--err); background: color-mix(in srgb, var(--err) 12%, transparent);
+    border: 1px solid color-mix(in srgb, var(--err) 40%, transparent); }
+
+  /* Listes */
+  .row { display: flex; align-items: center; gap: 12px; padding: 11px 0; border-top: 1px solid var(--line); flex-wrap: wrap; }
+  .list > .row:first-child { border-top: 0; }
+  .name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 14px; font-weight: 500; }
+  .meta { color: var(--muted); font-size: 12px; margin-top: 1px; }
+  .big { color: var(--warn); font-weight: 600; }
+  .fit { color: var(--ok); font-weight: 600; }
+  .empty { color: var(--muted); font-size: 14px; padding: 14px 0 6px; text-align: center; }
   .err { color: var(--err); font-size: 13px; margin-top: 10px; }
+  .err:empty { display: none; }
+
+  details.upload { margin-top: 12px; border-top: 1px solid var(--line); padding-top: 10px; }
+  details.upload summary { cursor: pointer; font-size: 13px; color: var(--muted); }
+  #drop {
+    margin-top: 10px; border: 1.5px dashed var(--line); border-radius: 10px; padding: 20px;
+    text-align: center; color: var(--muted); font-size: 13px; cursor: pointer;
+  }
+  #drop:hover, #drop.over, #drop:focus-visible { border-color: var(--accent); background: var(--accent-soft); color: var(--ink); outline: none; }
+  #drop.busy { pointer-events: none; opacity: .5; }
+
+  /* File de traitement */
+  .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 10px; margin-bottom: 14px; }
+  .stat { background: var(--sunk); border-radius: 10px; padding: 9px 12px; }
+  .stat b { display: block; font-size: 18px; font-variant-numeric: tabular-nums; }
+  .stat span { font-size: 12px; color: var(--muted); }
+  .filters { display: flex; gap: 4px; flex-wrap: wrap; }
+  .filters button { background: transparent; color: var(--muted); border: 1px solid transparent; padding: 4px 10px; border-radius: 20px; }
+  .filters button[aria-pressed=true] { background: var(--accent-soft); color: var(--accent); }
+  .filters button:hover { filter: none; color: var(--ink); }
+  .bar { height: 5px; background: var(--line); border-radius: 3px; overflow: hidden; margin-top: 7px; }
+  .bar > i { display: block; height: 100%; background: var(--accent); transition: width .5s; }
+  .badge { font-size: 11px; padding: 2px 9px; border-radius: 20px; font-weight: 600; white-space: nowrap; background: var(--sunk); color: var(--muted); }
+  .badge.run { background: var(--accent-soft); color: var(--accent); }
+  .badge.done { background: color-mix(in srgb, var(--ok) 15%, transparent); color: var(--ok); }
+  .badge.failed { background: color-mix(in srgb, var(--err) 15%, transparent); color: var(--err); }
+  .files { display: flex; gap: 5px; flex-wrap: wrap; align-items: center; }
+  .row > .grow { flex-basis: 260px; }   /* le nom passe avant les boutons : ceux-ci vont à la ligne */
+  details.parts { font-size: 12px; color: var(--muted); }
+  details.parts summary { cursor: pointer; padding: 3px 4px; }
+  details.parts .files { margin-top: 6px; }
+  a.dl { font-size: 11px; font-weight: 600; color: var(--accent); text-decoration: none; border: 1px solid var(--line); border-radius: 6px; padding: 3px 8px; }
+  a.dl:hover { border-color: var(--accent); background: var(--accent-soft); }
+  a.dl.zip { background: var(--accent); color: #fff; border-color: var(--accent); }
+  a.dl.zip:hover { filter: brightness(1.08); }
+  details.error { margin-top: 5px; font-size: 12px; color: var(--err); }
+  details.error summary { cursor: pointer; }
+  details.error pre { white-space: pre-wrap; word-break: break-word; background: var(--sunk); padding: 8px; border-radius: 6px; max-height: 160px; overflow: auto; margin: 6px 0 0; }
+  .more { text-align: center; padding-top: 10px; }
+
+  .toast {
+    position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%); background: var(--ink); color: var(--bg);
+    font-size: 13px; padding: 8px 14px; border-radius: 8px; opacity: 0; transition: opacity .2s; pointer-events: none;
+  }
+  .toast.show { opacity: 1; }
 </style>
 </head>
 <body>
 <main>
   <header>
-    <h1>Transcription Vidéo &amp; Audio</h1>
-    <span class="dot" id="health" title="état de l'API"></span>
+    <div>
+      <h1>Transcription et compression pour le RAG</h1>
+      <p class="sub">Chaque vidéo est transcrite dans la langue choisie, puis compressée sous la taille maximale.</p>
+    </div>
+    <span class="status"><span class="dot" id="health"></span><span id="healthText">connexion…</span></span>
   </header>
-  <p class="sub">Transcription et compression de fichiers volumineux, jusqu'à plusieurs To.</p>
 
+  <!-- Réglages -->
   <section>
-    <h2>Ajouter une vidéo</h2>
-    <div id="drop">
-      <strong>Glisse un fichier ici</strong> ou clique pour parcourir<br>
-      <span style="font-size:13px">envoyé par morceaux de 64 Mo — aucune limite de taille</span>
+    <div class="settings">
+      <div class="size">Langue de la vidéo
+        <div class="lang" id="lang" role="group" aria-label="Langue de la vidéo">
+          <button type="button" data-lang="fr" aria-pressed="true">Français</button>
+          <button type="button" data-lang="en" aria-pressed="false">Anglais</button>
+        </div>
+      </div>
+      <label class="size">Taille maximale par fichier
+        <input type="number" id="maxMb" min="10" step="10" value="300"> Mo</label>
+      <label class="check"><input type="checkbox" id="split" checked>
+        Découper en parties si la vidéo est trop longue</label>
     </div>
-    <input type="file" id="file" hidden accept="video/*,audio/*">
+    <p class="muted" id="splitHint" style="margin:8px 0 0"></p>
+  </section>
 
-    <div class="options">
-      <div>
-        <label for="mode">Traitement</label>
-        <select id="mode">
-          <option value="transcribe">Transcrire</option>
-          <option value="compress">Compresser</option>
-          <option value="process">Transcrire + compresser</option>
-        </select>
-      </div>
-      <div>
-        <label for="lang">Langue</label>
-        <select id="lang">
-          <option value="auto">Détection automatique</option>
-          <option value="fr">Français</option>
-          <option value="en">Anglais</option>
-          <option value="es">Espagnol</option>
-        </select>
-      </div>
-      <div>
-        <label for="formats">Formats</label>
-        <select id="formats">
-          <option value="srt,json">SRT + JSON</option>
-          <option value="srt,vtt,json,txt">Tout</option>
-          <option value="srt">SRT seul</option>
-          <option value="txt">Texte seul</option>
-        </select>
-      </div>
+  <!-- Sources -->
+  <section>
+    <div class="head">
+      <h2>Fichiers à compresser</h2>
+      <span class="muted grow">dans <code id="mediaPath">…</code></span>
+      <button type="button" class="ghost" id="reload">Relire</button>
+      <button type="button" id="all" hidden></button>
     </div>
-    <div id="upbar" class="bar" hidden><i></i></div>
-    <div id="upmsg" class="meta"></div>
+    <div id="media" class="list"><p class="empty">Lecture du disque…</p></div>
+
+    <details class="upload">
+      <summary>Ou envoyer un fichier depuis ce PC (fichiers de quelques Go)</summary>
+      <div id="drop" tabindex="0" role="button">Glisse un fichier ici ou clique pour parcourir</div>
+      <input type="file" id="file" hidden accept="video/*,audio/*">
+      <div id="upload" hidden style="margin-top:10px">
+        <div class="row" style="border:0;padding:0">
+          <div class="grow"><div class="name" id="upName"></div><div class="meta" id="upMeta"></div></div>
+          <button type="button" class="ghost danger" id="upCancel">Annuler</button>
+        </div>
+        <div class="bar"><i id="upBar" style="width:0"></i></div>
+      </div>
+    </details>
     <div id="error" class="err"></div>
   </section>
 
+  <!-- File de traitement -->
   <section>
-    <h2>Fichiers déjà présents dans <code>media/</code></h2>
-    <div id="media"><p class="empty">Chargement…</p></div>
+    <div class="head">
+      <h2>Traitements</h2>
+      <span class="muted grow">résultats dans <code id="outputPath">…</code></span>
+    </div>
+    <div class="stats" id="stats"></div>
+    <div class="head">
+      <div class="filters grow" id="filters">
+        <button type="button" data-f="all" aria-pressed="true">Tous</button>
+        <button type="button" data-f="active" aria-pressed="false">En cours</button>
+        <button type="button" data-f="done" aria-pressed="false">Terminés</button>
+        <button type="button" data-f="failed" aria-pressed="false">Échecs</button>
+      </div>
+      <button type="button" class="ghost" id="clearDone" hidden>Retirer les terminés</button>
+      <button type="button" class="ghost" id="clearFailed" hidden>Retirer les échecs</button>
+    </div>
+    <div id="jobs" class="list"><p class="empty">Chargement…</p></div>
   </section>
 
+  <!-- Fichiers produits, qu'un traitement existe encore ou non -->
   <section>
-    <h2>Travaux</h2>
-    <div id="jobs"><p class="empty">Chargement…</p></div>
+    <div class="head">
+      <h2>Fichiers produits</h2>
+      <span class="muted grow" id="outputsSummary"></span>
+      <button type="button" class="ghost danger" id="clearOutputs" hidden>Tout supprimer</button>
+    </div>
+    <div id="outputs" class="list"><p class="empty">Chargement…</p></div>
   </section>
 </main>
+<div class="toast" id="toast"></div>
+<dialog class="remove" id="removeDialog">
+  <form method="dialog">
+    <h3 id="removeTitle"></h3>
+    <div class="alert" id="removeAlert" hidden></div>
+    <p id="removeText"></p>
+    <div class="actions" id="removeActions"></div>
+  </form>
+</dialog>
 
 <script>
-const CHUNK = 64 * 1024 * 1024;               // 64 Mo par morceau
+const CHUNK = 64 * 1024 * 1024;
+const MO = 1e6;                                  // Mo décimal, comme le serveur
+const PAGE = 100;
 const $ = (id) => document.getElementById(id);
-const gb = (n) => n >= 1 ? n.toFixed(2) + ' Go' : (n * 1024).toFixed(0) + ' Mo';
+const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) =>
+  ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
 
+const ACTIVE = ['queued', 'running', 'extracting', 'transcribing', 'ocr', 'compressing', 'uploading'];
 const STATUS = {
-  pending: 'en attente', uploading: 'envoi', queued: 'en file', running: 'démarrage',
-  extracting: 'extraction audio', transcribing: 'transcription', ocr: 'analyse des images',
-  compressing: 'compression', done: 'terminé', failed: 'échec',
+  uploading: 'envoi', queued: 'en file', running: 'démarrage', compressing: 'compression',
+  extracting: 'analyse', transcribing: 'transcription', ocr: 'images', done: 'terminé', failed: 'échec',
 };
 
-function options() {
-  return {
-    mode: $('mode').value,
-    options: {
-      language: $('lang').value,
-      formats: $('formats').value.split(','),
-    },
-  };
+function bytes(n) {
+  if (n == null) return '—';
+  const units = ['o', 'Ko', 'Mo', 'Go', 'To'];
+  let i = 0;
+  while (n >= 1000 && i < units.length - 1) { n /= 1000; i++; }
+  return (i >= 3 ? n.toFixed(2) : Math.round(n)) + ' ' + units[i];
+}
+function duration(s) {
+  if (!isFinite(s) || s < 0) return '…';
+  if (s < 90) return Math.round(s) + ' s';
+  if (s < 5400) return Math.round(s / 60) + ' min';
+  if (s < 172800) return (s / 3600).toFixed(1) + ' h';
+  return (s / 86400).toFixed(1) + ' j';
 }
 
-function fail(message) {
-  $('error').textContent = message || '';
+let toastTimer;
+function toast(message) {
+  $('toast').textContent = message;
+  $('toast').classList.add('show');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => $('toast').classList.remove('show'), 2400);
 }
+const fail = (m) => { $('error').textContent = m || ''; };
 
 async function json(url, init) {
   const response = await fetch(url, init);
   const body = await response.json().catch(() => ({}));
-  if (!response.ok) throw new Error(body.detail || `${response.status} ${response.statusText}`);
+  if (!response.ok) {
+    throw Object.assign(new Error(body.detail || `${response.status} ${response.statusText}`), { status: response.status });
+  }
   return body;
 }
+const post = (url, body) => json(url, {
+  method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+});
 
-// --- Envoi par morceaux : la mémoire du navigateur reste constante -----------
-async function upload(file) {
-  fail('');
-  $('upbar').hidden = false;
-  const bar = $('upbar').firstElementChild;
-  const total = Math.ceil(file.size / CHUNK);
+// --- Réglages (mémorisés dans le navigateur) ---------------------------------
+const maxMb = () => Number($('maxMb').value) || 0;
+let language = 'fr';
+function setLanguage(value) {
+  language = value === 'en' ? 'en' : 'fr';
+  $('lang').querySelectorAll('button').forEach((b) => b.setAttribute('aria-pressed', b.dataset.lang === language));
+}
+try {
+  const saved = JSON.parse(localStorage.getItem('compression') || '{}');
+  if (saved.maxMb) $('maxMb').value = saved.maxMb;
+  if (saved.split === false) $('split').checked = false;
+  setLanguage(saved.language);
+} catch {}
+function onSettings() {
+  try { localStorage.setItem('compression', JSON.stringify({ maxMb: maxMb(), split: $('split').checked, language })); } catch {}
+  $('splitHint').textContent = $('split').checked
+    ? `Une vidéo longue devient plusieurs fichiers de ${maxMb()} Mo maximum, en gardant une image lisible.`
+    : `Tout tient en un seul fichier de ${maxMb()} Mo : une vidéo très longue sera fortement dégradée, ou refusée.`;
+  renderMedia();
+}
+$('maxMb').oninput = onSettings;
+$('split').onchange = onSettings;
+$('lang').querySelectorAll('button').forEach((b) => b.onclick = () => { setLanguage(b.dataset.lang); onSettings(); });
 
-  try {
-    const job = await json('/jobs', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ filename: file.name, size: file.size, ...options() }),
-    });
-
-    for (let i = 0; i < total; i++) {
-      const slice = file.slice(i * CHUNK, Math.min((i + 1) * CHUNK, file.size));
-      let sent = false;
-      for (let attempt = 0; attempt < 3 && !sent; attempt++) {          // reprise si coupure
-        try {
-          await fetch(`/jobs/${job.id}/parts/${i}`, { method: 'PUT', body: slice });
-          sent = true;
-        } catch (error) { if (attempt === 2) throw error; }
-      }
-      const percent = ((i + 1) / total) * 100;
-      bar.style.width = percent + '%';
-      $('upmsg').textContent = `Envoi de ${file.name} — morceau ${i + 1}/${total} (${percent.toFixed(0)} %)`;
-    }
-
-    $('upmsg').textContent = 'Assemblage du fichier…';
-    await json(`/jobs/${job.id}/complete`, { method: 'POST' });
-    $('upmsg').textContent = `${file.name} envoyé, traitement lancé.`;
-  } catch (error) {
-    fail('Échec de l\'envoi : ' + error.message);
-    $('upmsg').textContent = '';
-  } finally {
-    setTimeout(() => { $('upbar').hidden = true; bar.style.width = '0'; }, 1200);
-    refresh();
-  }
+function payload() {
+  if (maxMb() < 10) throw new Error('Taille maximale invalide (10 Mo minimum).');
+  // Transcription (sous-titres + JSON) dans la langue choisie, puis compression.
+  return { mode: 'process', options: {
+    language, formats: ['srt', 'json'], max_mb: maxMb(), split: $('split').checked,
+  } };
 }
 
-async function launch(path) {
-  fail('');
-  try {
-    await json('/jobs', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ path, ...options() }),
-    });
-    refresh();
-  } catch (error) { fail('Impossible de lancer : ' + error.message); }
+// --- Sources sur le disque ---------------------------------------------------
+let entries = null;
+async function loadMedia() {
+  $('media').innerHTML = '<p class="empty">Lecture du disque…</p>';
+  try { entries = await json('/media'); }
+  catch (error) { entries = null; $('media').innerHTML = `<p class="err">${esc(error.message)}</p>`; return; }
+  renderMedia();
 }
+$('reload').onclick = loadMedia;
 
-async function remove(id) {
-  await fetch('/jobs/' + id, { method: 'DELETE' });
-  refresh();
-}
+function renderMedia() {
+  if (!entries) return;
+  const limit = maxMb() * MO;
+  const count = entries.reduce((n, e) => n + e.count, 0);
+  const total = entries.reduce((n, e) => n + e.size, 0);
 
-// --- Rendu -------------------------------------------------------------------
-function renderMedia(files) {
-  if (!files.length) {
-    $('media').innerHTML = '<p class="empty">Aucun fichier. Dépose une vidéo dans le dossier '
-      + '<code>media/</code> du projet, ou envoie-la ci-dessus.</p>';
+  $('all').hidden = entries.length < 2;
+  $('all').textContent = `Tout compresser (${count} fichiers · ${bytes(total)})`;
+
+  if (!entries.length) {
+    $('media').innerHTML = `<p class="empty">Aucun fichier audio ou vidéo ici.<br>
+      Copie tes fichiers dans ce dossier, ou change <code>MEDIA_PATH</code> dans <code>.env</code>
+      (ex. <code>MEDIA_PATH=/mnt/e/videos</code>) puis relance les conteneurs.</p>`;
     return;
   }
-  $('media').innerHTML = files.map((f) => `
-    <div class="row">
-      <div class="grow">
-        <div class="name" title="${f.path}">${f.name}</div>
-        <div class="meta">${gb(f.size_gb)}</div>
-      </div>
-      <button data-path="${encodeURIComponent(f.path)}">Lancer</button>
-    </div>`).join('');
-  $('media').querySelectorAll('button').forEach((b) =>
-    b.onclick = () => launch(decodeURIComponent(b.dataset.path)));
-}
-
-function renderJobs(jobs) {
-  if (!jobs.length) { $('jobs').innerHTML = '<p class="empty">Aucun travail en cours.</p>'; return; }
-  $('jobs').innerHTML = jobs.map((j) => {
-    const percent = Math.round((j.progress || 0) * 100);
-    const state = ['done', 'failed'].includes(j.status) ? j.status : '';
-    const links = (j.outputs || []).map((o) => {
-      const ext = o.split('.').pop();
-      return `<a class="dl" href="/jobs/${j.id}/result.${ext}">${ext.toUpperCase()}</a>`;
-    }).join(' ');
+  $('media').innerHTML = entries.map((e, i) => {
+    const folder = e.kind === 'folder';
+    const over = e.largest > limit;
+    const size = `<span class="${over ? 'big' : 'fit'}">${bytes(e.size)}</span>`;
+    const detail = folder
+      ? `${e.count} fichier${e.count > 1 ? 's' : ''} · ${size} au total`
+      : `${size}${over ? '' : ' · déjà sous la limite, sera copié tel quel'}`;
     return `
       <div class="row">
         <div class="grow">
-          <div class="name" title="${j.filename}">${j.filename}</div>
-          <div class="meta">${j.error ? j.error : (STATUS[j.status] || j.status) + ' · ' + percent + ' %'}</div>
-          ${state === 'done' ? '' : `<div class="bar"><i style="width:${percent}%"></i></div>`}
+          <div class="name" title="${esc(e.path)}">${folder ? '📁 ' : ''}${esc(e.name)}</div>
+          <div class="meta">${detail}</div>
         </div>
-        <span class="badge ${state}">${STATUS[j.status] || j.status}</span>
-        ${links}
-        <button class="ghost" data-id="${j.id}">Supprimer</button>
+        <button type="button" class="${over ? '' : 'ghost'}" data-i="${i}">
+          ${folder ? `Compresser les ${e.count}` : 'Compresser'}</button>
+        <button type="button" class="ghost icon danger" data-rm="${i}" title="Supprimer du disque, avec ses compressions">🗑</button>
       </div>`;
   }).join('');
-  $('jobs').querySelectorAll('button[data-id]').forEach((b) => b.onclick = () => remove(b.dataset.id));
+  $('media').querySelectorAll('button[data-i]').forEach((b) => b.onclick = () => start([entries[b.dataset.i]], b));
+  $('media').querySelectorAll('button[data-rm]').forEach((b) => b.onclick = () => deleteSource(entries[b.dataset.rm]));
 }
+$('all').onclick = () => start(entries, $('all'));
 
-async function refresh() {
+async function start(list, button) {
+  fail('');
+  let body;
+  try { body = payload(); } catch (error) { fail(error.message); return; }
+  const count = list.reduce((n, e) => n + e.count, 0);
+  if (count > 1 && !confirm(`Compresser ${count} fichiers sous ${maxMb()} Mo chacun ?`)) return;
+  button.disabled = true;
+  let queued = 0, skipped = 0;
   try {
-    const [health, media, jobs] = await Promise.all([
-      fetch('/health').then((r) => r.ok), json('/media'), json('/jobs?limit=25'),
-    ]);
-    $('health').className = 'dot ' + (health ? 'up' : 'down');
-    renderMedia(media);
-    renderJobs(jobs);
+    for (const e of list) {
+      try {
+        const created = await post('/jobs', { path: e.path, ...body });
+        queued += created.count ?? 1;
+        skipped += created.skipped || 0;
+      } catch (error) {
+        if (error.status !== 409) throw error;
+        skipped += 1;                   // déjà en cours : pas de doublon dans le même dossier
+      }
+    }
+    toast(`${queued} fichier${queued > 1 ? 's' : ''} ajouté${queued > 1 ? 's' : ''} à la file`
+      + (skipped ? ` · ${skipped} déjà en cours, ignoré${skipped > 1 ? 's' : ''}` : ''));
   } catch (error) {
-    $('health').className = 'dot down';
+    fail('Impossible de lancer : ' + error.message);
+  } finally {
+    button.disabled = false;
+    refresh();
   }
 }
 
-// --- Glisser-déposer ---------------------------------------------------------
+// --- Envoi depuis le PC (par morceaux) ---------------------------------------
+let uploading = null;
+async function upload(file) {
+  if (uploading) return;
+  fail('');
+  let body;
+  try { body = payload(); } catch (error) { fail(error.message); return; }
+
+  const controller = new AbortController();
+  uploading = { controller, job: null };
+  const parts = Math.max(1, Math.ceil(file.size / CHUNK));
+  const began = performance.now();
+  $('drop').classList.add('busy');
+  $('upload').hidden = false;
+  $('upName').textContent = file.name;
+  $('upMeta').textContent = 'Préparation…';
+  $('upBar').style.width = '0';
+
+  try {
+    const job = await post('/jobs', { filename: file.name, size: file.size, ...body });
+    uploading.job = job.id;
+    for (let i = 0; i < parts; i++) {
+      const slice = file.slice(i * CHUNK, Math.min((i + 1) * CHUNK, file.size));
+      for (let attempt = 0; ; attempt++) {
+        try {
+          const r = await fetch(`/jobs/${job.id}/parts/${i}`, { method: 'PUT', body: slice, signal: controller.signal });
+          if (!r.ok) throw new Error(`morceau ${i + 1} refusé (${r.status})`);
+          break;
+        } catch (error) {
+          if (controller.signal.aborted || attempt === 2) throw error;
+          await new Promise((r) => setTimeout(r, 1000 * (attempt + 1)));
+        }
+      }
+      const sent = Math.min((i + 1) * CHUNK, file.size);
+      const speed = sent / ((performance.now() - began) / 1000);
+      $('upBar').style.width = (sent / file.size * 100) + '%';
+      $('upMeta').textContent = `${bytes(sent)} / ${bytes(file.size)} · ${bytes(speed)}/s · reste ${duration((file.size - sent) / speed)}`;
+    }
+    $('upMeta').textContent = 'Assemblage sur le serveur…';
+    await json(`/jobs/${job.id}/complete`, { method: 'POST', signal: controller.signal });
+    toast('Fichier envoyé, compression en file');
+  } catch (error) {
+    if (controller.signal.aborted) {
+      if (uploading.job) await fetch('/jobs/' + uploading.job, { method: 'DELETE' });
+      toast('Envoi annulé');
+    } else fail("Échec de l'envoi : " + error.message);
+  } finally {
+    uploading = null;
+    $('upload').hidden = true;
+    $('drop').classList.remove('busy');
+    $('file').value = '';
+    refresh();
+  }
+}
+$('upCancel').onclick = () => uploading && uploading.controller.abort();
+window.addEventListener('beforeunload', (e) => { if (uploading) e.preventDefault(); });
+
 const drop = $('drop');
 drop.onclick = () => $('file').click();
+drop.onkeydown = (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); $('file').click(); } };
 $('file').onchange = (e) => e.target.files[0] && upload(e.target.files[0]);
-['dragenter', 'dragover'].forEach((type) =>
-  drop.addEventListener(type, (e) => { e.preventDefault(); drop.classList.add('over'); }));
-['dragleave', 'drop'].forEach((type) =>
-  drop.addEventListener(type, (e) => { e.preventDefault(); drop.classList.remove('over'); }));
+['dragenter', 'dragover'].forEach((t) => drop.addEventListener(t, (e) => { e.preventDefault(); drop.classList.add('over'); }));
+['dragleave', 'drop'].forEach((t) => drop.addEventListener(t, (e) => { e.preventDefault(); drop.classList.remove('over'); }));
 drop.addEventListener('drop', (e) => e.dataTransfer.files[0] && upload(e.dataTransfer.files[0]));
+['dragover', 'drop'].forEach((t) => window.addEventListener(t, (e) => e.preventDefault()));
 
+// --- Traitements -------------------------------------------------------------
+let filter = 'all';
+let shown = PAGE;
+let jobsCache = [];
+$('filters').querySelectorAll('button').forEach((b) => b.onclick = () => {
+  filter = b.dataset.f;
+  shown = PAGE;
+  $('filters').querySelectorAll('button').forEach((x) => x.setAttribute('aria-pressed', x === b));
+  renderJobs(jobsCache, true);
+});
+
+// Temps restant : vitesse observée depuis la première fois que le job est vu
+// en cours dans cette page.
+const seen = {};
+function eta(job) {
+  const now = Date.now() / 1000;
+  const p = job.progress || 0;
+  const first = seen[job.id] ??= { t: now, p };
+  if (p <= first.p + 0.001 || now - first.t < 5) return '';
+  return ' · reste ' + duration((1 - p) * (now - first.t) / (p - first.p));
+}
+
+const isVideo = (path) => /_compressed(_\d+|_partie\d+-\d+)?\.(mp4|m4a)$/.test(path);
+function partLabel(path, i, count) {
+  const m = path.match(/_partie(\d+)-(\d+)\.[^.]+$/);
+  if (m) return `Partie ${Number(m[1])}/${Number(m[2])}`;
+  const n = count > 1 && path.match(/_compressed_(\d+)\.[^.]+$/);
+  if (n) return `Partie ${Number(n[1])}/${count}`;
+  if (isVideo(path)) return 'Vidéo';
+  const ext = path.match(/\.([^./]+)$/);
+  if (ext) return ext[1].toUpperCase();
+  return count > 1 ? `Fichier ${i + 1}` : 'Télécharger';
+}
+
+let lastSnapshot = '';
+function renderJobs(jobs, force = false) {
+  jobsCache = jobs;
+  const done = jobs.filter((j) => j.status === 'done');
+  const failed = jobs.filter((j) => j.status === 'failed');
+  const active = jobs.filter((j) => ACTIVE.includes(j.status));
+  const inBytes = done.reduce((n, j) => n + (j.size || 0), 0);
+  const outBytes = done.reduce((n, j) => n + (j.output_sizes || []).reduce((a, b) => a + (b || 0), 0), 0);
+  const files = done.reduce((n, j) => n + (j.outputs || []).length, 0);
+
+  $('stats').innerHTML = [
+    [active.length, 'en cours ou en file'],
+    [done.length, 'terminés'],
+    [files, 'fichiers produits'],
+    [done.length ? `${bytes(inBytes)} → ${bytes(outBytes)}` : '—', 'avant → après'],
+    ...(failed.length ? [[failed.length, 'en échec']] : []),
+  ].map(([v, l]) => `<div class="stat"><b>${v}</b><span>${l}</span></div>`).join('');
+  $('clearDone').hidden = !done.length;
+  $('clearFailed').hidden = !failed.length;
+
+  const list = jobs.filter((j) => filter === 'all' || (filter === 'active' ? ACTIVE.includes(j.status) : j.status === filter));
+  const snapshot = JSON.stringify([list.slice(0, shown), filter, shown]);
+  if (!force && snapshot === lastSnapshot && !active.length) return;
+  lastSnapshot = snapshot;
+
+  if (!list.length) {
+    $('jobs').innerHTML = `<p class="empty">${jobs.length ? 'Rien dans cette catégorie.' : 'Aucun traitement. Choisis un fichier ou un dossier ci-dessus.'}</p>`;
+    return;
+  }
+  const open = new Set([...$('jobs').querySelectorAll('details[open]')].map((d) => d.dataset.id));
+  const limit = maxMb() * MO;
+
+  $('jobs').innerHTML = list.slice(0, shown).map((j) => {
+    const running = ACTIVE.includes(j.status);
+    const percent = Math.round((j.progress || 0) * 100);
+    const badge = j.status === 'done' ? 'done' : j.status === 'failed' ? 'failed' : running ? 'run' : '';
+    const sizes = j.output_sizes || [];
+    const outputs = j.outputs || [];
+    // Taille et nombre de parties : vidéos seulement, sans les sous-titres.
+    // Une taille null = fichier absent du disque (supprimé ou déplacé).
+    const present = outputs.filter((_, i) => sizes[i] != null).length;
+    const videos = outputs.map((o, i) => [o, sizes[i]]).filter(([o, n]) => isVideo(o) && n != null);
+    const measured = videos.length ? videos.map(([, n]) => n) : sizes.filter((n) => n != null);
+    const outTotal = measured.reduce((a, b) => a + b, 0);
+    const count = outputs.filter(isVideo).length || outputs.length;
+    const over = measured.some((s) => s > limit);
+    const langTag = j.language ? ` · ${j.language === 'en' ? 'anglais' : 'français'}` : '';
+
+    let meta = bytes(j.size) + langTag;
+    if (j.status === 'done' && outputs.length && !present) {
+      meta += ' → <span class="big">fichiers supprimés du disque</span>';
+    } else if (j.status === 'done') {
+      meta += ` → <span class="${over ? 'big' : 'fit'}">${bytes(outTotal)}</span>`
+        + (measured.length > 1 ? ` en ${measured.length} fichiers (max ${bytes(Math.max(...measured))})` : '')
+        + (present < outputs.length ? ` · <span class="big">${outputs.length - present} manquant${outputs.length - present > 1 ? 's' : ''}</span>` : '');
+    } else if (running && j.status !== 'queued') {
+      meta += ` · ${percent} %${eta(j)}`;
+    }
+
+    const all = sizes.reduce((a, b) => a + (b || 0), 0);
+    const title = j.filename.replace(/\.[^.]+$/, '');
+    const buttons = outputs.map((o, i) => sizes[i] == null ? '' :
+      `<a class="dl" href="/jobs/${j.id}/files/${i}" download title="${esc(o.split('/').pop())} · ${bytes(sizes[i])}">${partLabel(o, i, count)}</a>`).join('');
+    // Au-delà de quelques fichiers, le zip (un dossier au nom de la vidéo) est
+    // le téléchargement principal ; les fichiers séparés restent dépliables.
+    const links = j.status !== 'done' || !present ? '' : (present > 1
+      ? `<a class="dl zip" href="/jobs/${j.id}/archive.zip" download title="Dossier « ${esc(title)} » : ${present} fichiers · ${bytes(all)}">📦 Tout (.zip) · ${bytes(all)}</a>` : '')
+      + (present > 3
+        ? `<details class="parts" data-id="parts-${j.id}" ${open.has('parts-' + j.id) ? 'open' : ''}>
+             <summary>${present} fichiers séparés</summary><div class="files">${buttons}</div></details>`
+        : buttons);
+
+    return `
+      <div class="row">
+        <div class="grow">
+          <div class="name" title="${esc(j.folder ? j.folder + '/' + j.filename : j.filename)}">${j.folder ? `<span class="muted">${esc(j.folder)}/</span>` : ''}${esc(j.filename)}</div>
+          <div class="meta">${meta}</div>
+          ${running && j.status !== 'queued' ? `<div class="bar"><i style="width:${percent}%"></i></div>` : ''}
+          ${j.error ? `<details class="error" data-id="${j.id}" ${open.has(j.id) ? 'open' : ''}>
+            <summary>${esc(j.error.split('\n')[0].slice(0, 140))}</summary><pre>${esc(j.error)}</pre></details>` : ''}
+        </div>
+        <div class="files">${links}</div>
+        <span class="badge ${badge}">${esc(STATUS[j.status] || j.status)}</span>
+        <button type="button" class="ghost icon danger" data-del="${j.id}" title="Retirer">✕</button>
+      </div>`;
+  }).join('') + (list.length > shown
+    ? `<div class="more"><button type="button" class="ghost" id="more">Afficher ${Math.min(PAGE, list.length - shown)} de plus (${list.length - shown} restants)</button></div>` : '');
+
+  if ($('more')) $('more').onclick = () => { shown += PAGE; renderJobs(jobsCache, true); };
+  $('jobs').querySelectorAll('[data-del]').forEach((b) => b.onclick = async () => {
+    const job = jobs.find((j) => j.id === b.dataset.del);
+    const choice = await askRemove(job);
+    if (!choice) return;
+    const r = await json(`/jobs/${job.id}?files=${choice === 'files'}`, { method: 'DELETE' });
+    toast(choice === 'files'
+      ? `Retiré · ${r.files_deleted} fichier${r.files_deleted > 1 ? 's' : ''} supprimé${r.files_deleted > 1 ? 's' : ''}`
+      : 'Retiré · fichiers conservés');
+    refresh();
+  });
+}
+
+// Fenêtre de confirmation. Résout la valeur du bouton choisi, '' si annulé.
+function ask({ title, text, alert = '', buttons }) {
+  const d = $('removeDialog');
+  $('removeTitle').textContent = title;
+  $('removeText').textContent = text;
+  $('removeAlert').textContent = alert;
+  $('removeAlert').hidden = !alert;
+  $('removeActions').innerHTML = [['', 'Annuler', 'ghost'], ...buttons]
+    .map(([value, label, cls]) => `<button type="submit" class="${cls}" value="${value}">${esc(label)}</button>`).join('');
+  d.returnValue = '';
+  d.showModal();
+  d.querySelector('button[value=""]').focus();     // Entrée ne supprime jamais par accident
+  return new Promise((resolve) => d.addEventListener('close', () => resolve(d.returnValue), { once: true }));
+}
+
+// Résout '' (annuler), 'keep' (garder les fichiers) ou 'files' (tout supprimer).
+function askRemove(job) {
+  const running = ACTIVE.includes(job.status);
+  return ask({
+    title: `Retirer « ${job.filename} » ?`,
+    text: (running ? 'Le traitement en cours sera arrêté. ' : '')
+      + 'En gardant les fichiers, relancer ce même fichier reprend là où il s\'était arrêté : '
+      + 'les parties déjà faites ne sont pas refaites. Supprimer efface aussi du disque les fichiers produits.',
+    buttons: [['keep', 'Retirer, garder les fichiers', 'ghost'], ['files', 'Supprimer aussi les fichiers', 'destroy']],
+  });
+}
+
+async function deleteSource(e) {
+  const folder = e.kind === 'folder';
+  const what = folder ? `le dossier « ${e.name} » et ses ${e.count} fichier${e.count > 1 ? 's' : ''}` : `« ${e.name} »`;
+  const choice = await ask({
+    title: `Supprimer ${what} ?`,
+    alert: `⚠ Suppression définitive du disque (${bytes(e.size)}), sans corbeille. `
+      + `Toutes les compressions et transcriptions tirées de ${folder ? 'ces vidéos' : 'cette vidéo'} `
+      + 'seront aussi supprimées, et les traitements en cours arrêtés.',
+    text: `Emplacement : ${e.path}`,
+    buttons: [['delete', 'Supprimer définitivement', 'destroy']],
+  });
+  if (choice !== 'delete') return;
+  try {
+    const r = await json('/media?path=' + encodeURIComponent(e.path), { method: 'DELETE' });
+    toast(`${e.name} supprimé · ${r.files_deleted} fichier${r.files_deleted > 1 ? 's' : ''} produit${r.files_deleted > 1 ? 's' : ''} supprimé${r.files_deleted > 1 ? 's' : ''}`);
+  } catch (error) {
+    fail(error.message);
+  }
+  loadMedia();
+  refresh();
+}
+
+async function clear(status, label) {
+  const n = jobsCache.filter((j) => j.status === status).length;
+  const choice = await ask({
+    title: `Retirer ${n} traitement${n > 1 ? 's' : ''} ${label} de la liste ?`,
+    text: 'En gardant les fichiers, compressions et sous-titres restent sur le disque. '
+      + 'Supprimer les efface aussi ; les vidéos d\'origine dans media/ ne sont pas touchées.',
+    buttons: [['keep', 'Retirer, garder les fichiers', 'ghost'], ['files', 'Supprimer aussi les fichiers', 'destroy']],
+  });
+  if (!choice) return;
+  try {
+    const r = await json(`/jobs?status=${status}&files=${choice === 'files'}`, { method: 'DELETE' });
+    const plural = (k, w) => `${k} ${w}${k > 1 ? 's' : ''}`;
+    toast(`${plural(r.deleted, 'traitement')} retiré${r.deleted > 1 ? 's' : ''}`
+      + (choice === 'files' ? ` · ${plural(r.files_deleted, 'fichier')} supprimé${r.files_deleted > 1 ? 's' : ''}` : ' · fichiers conservés'));
+  } catch (error) {
+    fail(error.message);
+  }
+  refresh();
+}
+$('clearDone').onclick = () => clear('done', 'terminés');
+$('clearFailed').onclick = () => clear('failed', 'en échec');
+
+// --- Fichiers produits -------------------------------------------------------
+let outputGroups = [];
+let lastOutputs = '';
+function renderOutputs(groups) {
+  const snapshot = JSON.stringify(groups);
+  if (snapshot === lastOutputs) return;
+  lastOutputs = snapshot;
+  outputGroups = groups;
+  const files = groups.reduce((n, g) => n + g.files.length, 0);
+  const total = groups.reduce((n, g) => n + g.size, 0);
+  $('clearOutputs').hidden = !groups.length;
+  $('outputsSummary').textContent = groups.length ? `${files} fichier${files > 1 ? 's' : ''} · ${bytes(total)}` : '';
+  if (!groups.length) {
+    $('outputs').innerHTML = '<p class="empty">Aucun fichier produit.</p>';
+    return;
+  }
+  $('outputs').innerHTML = groups.map((g, i) => {
+    const videos = g.files.filter((f) => isVideo(f.name)).length;
+    const others = g.files.length - videos;
+    const detail = [videos && `${videos} vidéo${videos > 1 ? 's' : ''}`, others && `${others} sous-titre${others > 1 ? 's' : ''}`]
+      .filter(Boolean).join(' + ');
+    return `
+      <div class="row">
+        <div class="grow">
+          <div class="name" title="${esc(g.files.map((f) => f.name).join('\n'))}">${g.subdir ? `<span class="muted">${esc(g.subdir)}/</span>` : ''}${esc(g.base)}</div>
+          <div class="meta">${detail} · ${bytes(g.size)}</div>
+        </div>
+        <a class="dl zip" href="/outputs/archive.zip?base=${encodeURIComponent(g.base)}&subdir=${encodeURIComponent(g.subdir)}" download
+           title="Dossier « ${esc(g.base)} » en .zip">📦 Télécharger (.zip)</a>
+        <button type="button" class="ghost icon danger" data-out="${i}" title="Supprimer ces fichiers">🗑</button>
+      </div>`;
+  }).join('');
+  $('outputs').querySelectorAll('[data-out]').forEach((b) => b.onclick = () => deleteOutputs(outputGroups[b.dataset.out]));
+}
+
+async function deleteOutputs(group) {
+  const list = group ? [group] : outputGroups;
+  const files = list.reduce((n, g) => n + g.files.length, 0);
+  const total = list.reduce((n, g) => n + g.size, 0);
+  const choice = await ask({
+    title: group ? `Supprimer les fichiers de « ${group.base} » ?` : `Supprimer tous les fichiers produits (${list.length} vidéo${list.length > 1 ? 's' : ''}) ?`,
+    alert: `⚠ ${files} fichier${files > 1 ? 's' : ''} (${bytes(total)}) seront supprimés définitivement du disque, sans corbeille : `
+      + 'compressions et sous-titres.',
+    text: 'Les vidéos d\'origine ne sont pas touchées. Les traitements terminés dont il ne reste plus aucun fichier sont retirés de la liste.',
+    buttons: [['delete', group ? 'Supprimer' : 'Tout supprimer', 'destroy']],
+  });
+  if (choice !== 'delete') return;
+  try {
+    const query = group ? `base=${encodeURIComponent(group.base)}&subdir=${encodeURIComponent(group.subdir)}` : 'all=true';
+    const r = await json('/outputs?' + query, { method: 'DELETE' });
+    toast(`${r.files_deleted} fichier${r.files_deleted > 1 ? 's' : ''} supprimé${r.files_deleted > 1 ? 's' : ''}`);
+  } catch (error) {
+    fail(error.message);
+  }
+  refresh();
+}
+$('clearOutputs').onclick = () => deleteOutputs(null);
+
+let timer;
+async function refresh() {
+  clearTimeout(timer);
+  let busy = false;
+  try {
+    const jobs = await json('/jobs?limit=5000');
+    $('health').className = 'dot up';
+    $('healthText').textContent = 'en ligne';
+    renderJobs(jobs);
+    busy = jobs.some((j) => ACTIVE.includes(j.status));
+    renderOutputs(await json('/outputs'));
+  } catch {
+    $('health').className = 'dot down';
+    $('healthText').textContent = 'serveur injoignable';
+  }
+  timer = setTimeout(refresh, busy || uploading ? 3000 : 10000);
+}
+
+json('/settings').then((s) => {
+  $('mediaPath').textContent = s.media_path;
+  $('outputPath').textContent = s.output_path;
+}).catch(() => {});
+onSettings();
+loadMedia();
 refresh();
-setInterval(refresh, 2500);
 </script>
 </body>
 </html>

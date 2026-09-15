@@ -5,6 +5,9 @@
 #   docker run --rm --gpus all nvidia/cuda:12.9.2-base-ubuntu24.04 nvidia-smi
 
 x-gpu: &gpu
+  # Tag distinct : sans lui, `docker compose build` en CPU écrase l'image GPU
+  # sous le même nom, et libcublas disparaît sans prévenir.
+  image: transcription-video-audio:gpu
   build:
     context: .
     args:
@@ -12,17 +15,26 @@ x-gpu: &gpu
   environment:
     WHISPER_DEVICE: cuda
     WHISPER_COMPUTE_TYPE: float16
+    # Transcription par lots : 16 passages à la fois (~6 Go de VRAM avec turbo).
+    # Réduire à 8 en cas de « CUDA out of memory ».
+    WHISPER_BATCH_SIZE: "16"
+    # Encodage vidéo sur la carte : ~10x plus rapide que libx265 sur CPU.
+    VIDEO_CODEC: hevc_nvenc
+    # Par défaut l'image CUDA n'expose que compute,utility : sans « video »,
+    # libnvidia-encode est absente et NVENC échoue.
+    NVIDIA_DRIVER_CAPABILITIES: compute,utility,video
   deploy:
     resources:
       reservations:
         devices:
           - driver: nvidia
             count: 1
-            capabilities: [gpu]
+            capabilities: [gpu, compute, utility, video]
 
 services:
   # L'API n'infère pas : elle reste sur CPU, mais doit partager l'image CUDA.
   api:
+    image: transcription-video-audio:gpu
     build:
       context: .
       args:

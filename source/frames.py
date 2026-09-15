@@ -52,12 +52,9 @@ def detect_scenes(video: Path, output_dir: Path) -> list[Frame]:
 
             if index % step == 0:
                 gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
-                changed = (
-                    previous is None
-                    or cv2.absdiff(previous, gray).mean() > settings.scene_threshold
-                )
+                changed = previous is None or _changed(previous, gray)
                 if changed:
-                    path = output_dir / f"frame_{index:08d}.jpg"
+                    path = output_dir / f"frame_{int(index / fps):06d}s.jpg"
                     cv2.imwrite(str(path), image)
                     frames.append(Frame(timestamp=index / fps, path=path, text=[]))
                     previous = gray
@@ -68,6 +65,21 @@ def detect_scenes(video: Path, output_dir: Path) -> list[Frame]:
 
     log.info("%d images retenues sur %d analysées", len(frames), index // step)
     return frames
+
+
+def _changed(previous, current) -> bool:
+    """Compare deux images sur la *proportion* de pixels modifiés.
+
+    La moyenne des écarts, elle, rate les changements de diapositive : quand
+    seul le texte change sur un fond blanc, les pixels touchés représentent
+    quelques pour cent de l'image et la moyenne reste sous n'importe quel seuil.
+    """
+    import cv2
+    import numpy as np
+
+    difference = cv2.absdiff(previous, current)
+    moved = float(np.count_nonzero(difference > 25)) / difference.size
+    return moved * 100 > settings.scene_threshold
 
 
 def read_text(frame: Frame, languages: str = "fra+eng") -> list[str]:
@@ -99,13 +111,19 @@ def enrich(segments: list[Segment], frames: list[Frame]) -> list[Segment]:
     return segments
 
 
-def analyze(video: Path, work_dir: Path, segments: list[Segment]) -> list[Segment]:
-    """Chaîne complète : détection de scènes → OCR → alignement sur la parole."""
-    frames = detect_scenes(video, work_dir / "frames")
+def analyze(
+    video: Path, output_dir: Path, segments: list[Segment]
+) -> tuple[list[Segment], list[Frame]]:
+    """Chaîne complète : détection de scènes → OCR → alignement sur la parole.
+
+    Les captures sont écrites à côté des transcriptions, et non dans le dossier
+    de travail : celui-ci est purgé, elles doivent survivre au traitement.
+    """
+    frames = detect_scenes(video, output_dir / f"{video.stem}_frames")
     for frame in frames:
         try:
             frame.text = read_text(frame)
         except Exception as error:          # OCR indisponible : on garde l'image
             log.warning("OCR indisponible (%s)", error)
             break
-    return enrich(segments, frames)
+    return enrich(segments, frames), frames

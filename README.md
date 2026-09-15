@@ -29,6 +29,7 @@ Le projet répond à deux besoins distincts, volontairement découplés :
 - [Traitement par chunks](#traitement-par-chunks)
 - [Images explicatives (OCR / Vision)](#images-explicatives-ocr--vision)
 - [Formats de sortie](#formats-de-sortie)
+- [RAG : indexation et recherche](#rag--indexation-et-recherche)
 - [Structure du projet](#structure-du-projet)
 - [Performances](#performances)
 - [Tests](#tests)
@@ -145,13 +146,36 @@ cp .env.example .env          # ajuster modèle, langue, taille cible
 mkdir -p media               # y déposer les fichiers à traiter
 ```
 
+### Avec Make (le plus simple)
+
+```bash
+make start    # construit et démarre toute la stack, affiche l'adresse de l'interface
+make stop     # arrête la stack (les volumes et les sorties sont conservés)
+```
+
+Le GPU est détecté automatiquement (présence de `nvidia-smi`, y compris sous
+WSL) : `make start` ajoute alors `docker-compose.gpu.yml`. Pour forcer un mode,
+passer `GPU=0` (CPU) ou `GPU=1` (GPU) — et utiliser la même valeur pour
+`make stop` :
+
+```bash
+make start GPU=0
+make stop GPU=0
+```
+
+`make` ne fait qu'appeler `docker compose` : rien d'autre n'est installé sur
+l'hôte.
+
+### Avec Docker Compose directement
+
 **CPU** (fonctionne partout) :
 
 ```bash
 docker compose up -d --build
 ```
 
-**GPU** (recommandé, ~15× plus rapide) :
+**GPU** (recommandé, ~15× plus rapide) — image taguée `:gpu`, distincte de la
+variante CPU taguée `:latest` :
 
 ```bash
 docker compose -f docker-compose.yml -f docker-compose.gpu.yml up -d --build
@@ -186,6 +210,7 @@ curl localhost:8100/health          # {"status":"ok","version":"0.1.0"}
 | `cli` | Traitements ponctuels en ligne de commande (profil `cli`) | — |
 | `postgres` | Métadonnées, état des chunks, reprise | — |
 | `redis` | Courtier de messages Celery | — |
+| `qdrant` | Base vectorielle pour la recherche | `QDRANT_PORT` → 6333 |
 
 ### Volumes
 
@@ -227,7 +252,7 @@ FastAPI — ni Node, ni build, ni dépendance supplémentaire.
 │  │      Glisse un fichier ici ou clique pour parcourir│  │
 │  │      envoyé par morceaux de 64 Mo — sans limite    │  │
 │  └────────────────────────────────────────────────────┘  │
-│  [Transcrire ▾]  [Détection auto ▾]  [SRT + JSON ▾]      │
+│  Langue : [Français | Anglais]   Taille max : [300] Mo   │
 ├──────────────────────────────────────────────────────────┤
 │  Fichiers déjà présents dans media/                      │
 │  cours.mp4                        0,68 Go     [Lancer]   │
@@ -244,10 +269,36 @@ Elle permet de :
   morceaux de 64 Mo envoyés un par un, avec 3 tentatives par morceau ; la
   mémoire du navigateur ne dépend donc pas de la taille du fichier ;
 - **lancer un fichier déjà dans `media/`** sans le réenvoyer ;
-- choisir le **traitement** (transcrire / compresser / les deux), la **langue**
-  (détection automatique par défaut) et les **formats** de sortie ;
+- **supprimer une vidéo** (🗑) de `media/` : après une alerte de confirmation,
+  la vidéo est effacée **définitivement** du disque avec toutes ses
+  compressions, ses sous-titres et ses travaux (API : `DELETE /media?path=…`).
+  Seul le service `api` monte `media/` en écriture ; `worker` et `cli` restent
+  en lecture seule ;
+- choisir la **langue de la vidéo** : **Français** ou **Anglais** (mémorisé
+  par le navigateur). Chaque vidéo est d'abord **transcrite** dans cette langue
+  (`.srt` + `.json`, pour le RAG), puis **compressée** ; sous-titres et parties
+  vidéo sont rangés ensemble dans le dossier de sortie ;
+- régler la **taille maximale** des fichiers compressés — **300 Mo par défaut**.
+  Une vidéo trop longue pour tenir dans cette limite est découpée en plusieurs
+  parties, chacune sous 300 Mo (case « découper » cochée) : `cours_compressed_1.mp4`,
+  `cours_compressed_2.mp4`… (un seul fichier reste `cours_compressed.mp4`),
+  rangées avec les sous-titres dans un dossier au nom de la vidéo :
+  `output/cours/`. La valeur choisie est
+  mémorisée par le navigateur : si une ancienne valeur (400) s'affiche, la
+  remplacer une fois par 300 ;
 - suivre la **progression** de chaque travail, rafraîchie toutes les 2,5 s ;
-- **télécharger** les sous-titres produits ou supprimer un travail.
+- **télécharger** les fichiers produits un par un, ou d'un coup avec
+  **📦 Tout (.zip)** : une archive contenant un dossier au nom de la vidéo,
+  avec toutes les parties et les sous-titres (API : `GET /jobs/{id}/archive.zip`,
+  `GET /outputs/archive.zip?base=…`) ;
+- voir et **supprimer tous les fichiers produits** (section « Fichiers
+  produits ») : tout le contenu de `output/`, groupé par vidéo, y compris les
+  fichiers dont le traitement a déjà été retiré de la liste — 🗑 par vidéo ou
+  « Tout supprimer », avec alerte (API : `GET /outputs`, `DELETE /outputs`) ;
+- **retirer un travail** (✕) en choisissant : *garder les fichiers* — relancer
+  le même fichier reprend là où il s'était arrêté, les parties déjà faites ne
+  sont pas refaites — ou *supprimer aussi les fichiers* produits du disque
+  (API : `DELETE /jobs/{id}?files=true`).
 
 Le thème suit celui du système (clair ou sombre).
 
@@ -271,7 +322,10 @@ docker compose run --rm cli python main.py info /media/cours.mp4
 docker compose run --rm cli python main.py transcribe /media/cours.mp4 \
     --lang fr --formats srt,vtt,json
 
-# Compression seule — sans --target-gb, encodage CRF (qualité constante)
+# Compression seule — fichiers de 300 Mo maximum (découpés en parties si besoin)
+docker compose run --rm cli python main.py compress /media/cours.mp4 --max-mb 300
+
+# Compression seule — sans --max-mb ni --target-gb, encodage CRF (qualité constante)
 docker compose run --rm cli python main.py compress /media/cours.mp4 --target-gb 450
 
 # Transcription puis compression
@@ -304,6 +358,10 @@ Exposée dès `docker compose up`, sur le port `API_PORT` (`.env`).
 | `GET` | `/api` | index JSON des routes |
 | `GET` | `/health` | sonde de vie |
 | `GET` | `/media` | fichiers présents dans `media/` |
+| `GET` | `/search` | recherche sémantique (`q`, `limit`, `source`) |
+| `GET` | `/sources` | vidéos indexées dans Qdrant |
+| `GET` | `/frames/{chemin}` | capture d'écran extraite |
+| `POST` | `/jobs/{id}/index` | indexer la transcription dans Qdrant |
 | `POST` | `/jobs` | créer un job (fichier local ou upload) |
 | `PUT` | `/jobs/{id}/parts/{n}` | envoyer un morceau d'upload |
 | `GET` | `/jobs/{id}/parts` | morceaux déjà reçus (reprise) |
@@ -527,7 +585,125 @@ rechercher aussi bien ce qui a été dit que ce qui a été montré.
 | `.srt` | sous-titres horodatés |
 | `.vtt` | sous-titres WebVTT (lecture navigateur) |
 | `.json` | segments + timestamps + confiance + OCR + vision |
+| `.rag.jsonl` | passages regroupés, prêts à indexer (une ligne = un passage) |
+| `<video>_frames/` | captures d'écran extraites, si l'OCR est activé |
 | `.csv` | export tabulaire pour analyse |
+
+---
+
+## RAG : indexation et recherche
+
+Les transcriptions alimentent une base vectorielle **Qdrant**, interrogeable en
+langage naturel depuis l'interface ou l'API.
+
+### Ne rien perdre des images
+
+Aucun format texte ne conserve les diapositives : **`.srt`, `.vtt`, `.txt` et
+`.csv` ne retiennent que la parole**. Pour qu'une image reste exploitable, il
+faut activer l'OCR :
+
+```bash
+ENABLE_OCR=true          # dans .env
+# ou, ponctuellement :
+docker compose run --rm cli python main.py transcribe /media/cours.mp4 \
+    --ocr --formats rag,json
+```
+
+Trois choses sont alors produites :
+
+| | |
+|---|---|
+| `<video>_frames/` | les captures elles-mêmes, à côté des transcriptions et non dans le dossier de travail purgé |
+| `.json` | une liste `frames` exhaustive : horodatage, image, texte lu |
+| `.rag.jsonl` | des passages `kind: "screen"` pour les diapositives **qu'aucune parole ne recouvre** |
+
+Ce dernier point est le seul moyen de ne rien perdre : une diapositive montrée
+en silence n'est rattachée à aucun segment de parole et disparaîtrait des
+formats classiques. Elle devient ici un passage à part entière, indexé sur son
+texte à l'écran.
+
+```json
+{"id": "cours#screen-cours_frames/frame_000735s.jpg", "kind": "screen",
+ "text": "Architecture RAG FastAPI Qdrant Embedding",
+ "timecode": "00:12:15.000", "frames": ["cours_frames/frame_000735s.jpg"]}
+```
+
+Les images sont servies par l'API, donc affichables dans les réponses du RAG :
+
+```
+GET /frames/cours_frames/frame_000735s.jpg
+```
+
+> **Réglage clé : `SCENE_THRESHOLD`** — c'est le pourcentage de pixels modifiés
+> qui déclenche une capture. 1 convient aux diapositives (seul le texte change),
+> 5 à 10 aux vidéos filmées, où un seuil bas capturerait chaque mouvement de
+> caméra. La comparaison porte sur la proportion de pixels modifiés et non sur
+> la moyenne des écarts : sur un fond blanc, un changement de titre ne fait
+> bouger que quelques pour cent de l'image et passerait inaperçu autrement.
+
+### Pourquoi un format dédié
+
+Les segments Whisper durent 5 à 15 secondes — une phrase. Vectorisés tels quels,
+ils perdent leur contexte et la recherche devient bruitée. Le format `rag`
+regroupe donc les segments en passages d'environ 1200 caractères (~300 mots)
+avec un recouvrement, et conserve les bornes temporelles :
+
+```json
+{"id": "cours#0007", "text": "…", "source": "cours", "chunk": 7,
+ "start": 735.2, "end": 762.8, "timecode": "00:12:15.200", "segments": 5}
+```
+
+Le champ `timecode` est l'intérêt principal : une réponse du RAG peut citer la
+minute exacte de la vidéo plutôt que le fichier entier.
+
+| Réglage (`.env`) | Défaut | Rôle |
+|---|---|---|
+| `RAG_CHUNK_CHARS` | 1200 | taille visée d'un passage (512 tokens ≈ 2000 car.) |
+| `RAG_OVERLAP_SEGMENTS` | 1 | segments repris d'un passage au suivant |
+| `EMBEDDING_MODEL` | `intfloat/multilingual-e5-large` | multilingue : interroger en français un contenu espagnol |
+| `QDRANT_COLLECTION` | `transcriptions` | collection Qdrant |
+
+> Le code ajoute automatiquement les préfixes `passage:` et `query:` exigés par
+> les modèles e5. Sans eux la pertinence chute nettement — c'est un piège
+> classique de ces modèles.
+
+### En ligne de commande
+
+```bash
+# Transcrire directement au format RAG
+docker compose run --rm cli python main.py transcribe /media/cours.mp4 --formats srt,rag
+
+# Ou regénérer le format depuis un JSON déjà produit, sans retranscrire
+docker compose run --rm cli python main.py export /data/out/cours.json --formats rag
+
+# Indexer, puis interroger
+docker compose run --rm cli python main.py index /data/out/cours.rag.jsonl
+docker compose run --rm cli python main.py search "comment créer un agent IA"
+```
+
+### Depuis l'interface
+
+Un champ de recherche en haut de page, et un bouton **Indexer** sur chaque
+travail terminé. Les résultats affichent le timecode, le score et le passage.
+
+### Par l'API
+
+```bash
+curl -X POST localhost:8100/jobs/{id}/index
+curl "localhost:8100/search?q=comment+créer+un+agent+IA&limit=5"
+```
+
+L'indexation tourne dans le processus de l'API, pas dans un worker Celery :
+elle est courte et purement CPU, donc elle n'entre pas en concurrence avec le
+GPU occupé par les transcriptions.
+
+Les identifiants de points sont déterministes (`uuid5` de l'`id` du passage) :
+réindexer un même fichier met à jour les points au lieu de les dupliquer.
+
+### Console Qdrant
+
+<http://localhost:6333/dashboard> — pour inspecter la collection, les vecteurs
+et les charges utiles.
 
 ---
 
@@ -535,6 +711,7 @@ rechercher aussi bien ce qui a été dit que ce qui a été montré.
 
 ```
 transcription_video_audio/
+├── Makefile                # make start / make stop (GPU auto-détecté)
 ├── Dockerfile              # image commune api / worker / cli
 ├── docker-compose.yml      # stack CPU (défaut)
 ├── docker-compose.gpu.yml  # override GPU (NVIDIA)
@@ -552,6 +729,7 @@ transcription_video_audio/
     ├── frames.py           # détection de scène + OCR (optionnel)
     ├── export.py           # SRT / VTT / JSON / TXT / CSV
     ├── pipeline.py         # orchestration, partagée CLI ↔ workers
+    ├── rag.py              # indexation et recherche Qdrant
     ├── db.py               # modèles SQLAlchemy (jobs, parts)
     ├── api.py              # FastAPI, upload chunké, progression
     ├── tasks.py            # workers Celery
@@ -680,7 +858,6 @@ docker compose exec worker df -h /data
 - [ ] Inférence par lots (`BatchedInferencePipeline`) : 3 à 4× plus rapide
 - [ ] Diarisation (identification des locuteurs)
 - [ ] Traduction automatique des sous-titres
-- [ ] Indexation vectorielle (Qdrant) pour la recherche sémantique
 - [ ] Lecteur vidéo synchronisé avec la transcription dans l'interface
 - [ ] Stockage objet S3 / MinIO pour les fichiers sources
 - [ ] Image multi-arch (`linux/amd64`, `linux/arm64`) publiée sur GHCR
