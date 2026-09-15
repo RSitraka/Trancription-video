@@ -399,6 +399,18 @@ class _ZipStream:
         return data
 
 
+def _windows_name(title: str, limit: int = 40) -> str:
+    """Titre utilisable sous Windows : sans caractère interdit (« : ? * … »), et
+    court. Windows refuse d'extraire un chemin de plus de 260 caractères, et le
+    titre y figure trois fois (zip, dossier, fichier)."""
+    name = re.sub(r'[<>:"/\\|?*\x00-\x1f]', "", title)
+    name = re.sub(r"\s+", " ", name).strip()
+    if len(name) > limit:
+        cut = name[:limit + 1]
+        name = cut.rsplit(" ", 1)[0] if " " in cut[limit // 2:] else name[:limit]
+    return name.rstrip(" .-_(") or "video"      # Windows refuse aussi un point final
+
+
 def _zip_response(title: str, files: list[Path]) -> StreamingResponse:
     """Archive .zip contenant un dossier au nom de la vidéo, produite à la volée :
     ni fichier temporaire ni mémoire proportionnelle à la taille (vidéos déjà
@@ -406,20 +418,26 @@ def _zip_response(title: str, files: list[Path]) -> StreamingResponse:
     files = [f for f in files if f.is_file()]
     if not files:
         raise HTTPException(404, "aucun fichier à télécharger")
+    short = _windows_name(title)
+
+    def entry(path: Path) -> str:
+        # « <titre long>_compressed_2.mp4 » → « <titre court>_compressed_2.mp4 »
+        name = short + path.name[len(title):] if path.name.startswith(title) else path.name
+        return f"{short}/{_windows_name(Path(name).stem, 80)}{''.join(Path(name).suffixes[-1:])}"
 
     def generate():
         stream = _ZipStream()
         with zipfile.ZipFile(stream, "w", zipfile.ZIP_STORED, allowZip64=True) as archive:
             for path in sorted(files, key=lambda f: [int(t) if t.isdigit() else t
                                                      for t in re.split(r"(\d+)", f.name)]):
-                info = zipfile.ZipInfo.from_file(path, f"{title}/{path.name}")
+                info = zipfile.ZipInfo.from_file(path, entry(path))
                 with path.open("rb") as source, archive.open(info, "w", force_zip64=True) as target:
                     while block := source.read(8 << 20):
                         target.write(block)
                         yield stream.take()
         yield stream.take()
 
-    name = f"{title}.zip"
+    name = f"{short}.zip"
     return StreamingResponse(generate(), media_type="application/zip", headers={
         "Content-Disposition": f"attachment; filename*=UTF-8''{quote(name)}"})
 
