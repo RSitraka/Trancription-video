@@ -8,9 +8,12 @@ même en 360p.
 
 from __future__ import annotations
 
+import bisect
+import json
 import logging
 import math
 import shutil
+import subprocess
 import threading
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
@@ -33,6 +36,13 @@ MO = 1000**2
 # et le conteneur MP4 ajoute ses propres octets.
 SAFETY = 0.95
 MAX_ATTEMPTS = 3
+
+# Découpage sans ré-encodage : la taille de chaque paquet est connue, seule
+# l'enveloppe MP4 est estimée (index d'environ 20 octets par paquet, en-têtes).
+# D'où une marge bien plus fine qu'à l'encodage.
+CUT_SAFETY = 0.99
+MP4_BYTES_PER_PACKET = 24
+MP4_FIXED_BYTES = 256 * 1024
 
 # Hauteur d'image maximale selon le débit vidéo disponible (kbps). Moins de
 # pixels à débit égal donne une image nette plutôt qu'une bouillie de blocs.
@@ -131,7 +141,7 @@ def compress_to_size(
     # Source déjà compacte : la couper suffit. Ré-encoder prendrait des heures,
     # dégraderait l'image et ne ferait pas gagner de place. On coupe dès que
     # cela ne produit guère plus de fichiers qu'un ré-encodage.
-    copy_parts = math.ceil(info.size / (limit * SAFETY))
+    copy_parts = math.ceil(info.size / (limit * CUT_SAFETY))
     if split and info.has_video and copy_parts <= max(parts + 1, parts * 1.5):
         try:
             return split_copy(source, destination, info, limit, on_progress)
@@ -191,21 +201,23 @@ def split_copy(
     work = destination.parent / f".{destination.stem}.decoupe"
     shutil.rmtree(work, ignore_errors=True)
     work.mkdir(parents=True)
+    scan = (lambda p: on_progress(p * 0.4)) if on_progress else None
+    cut = (lambda p: on_progress(0.4 + p * 0.6)) if on_progress else None
     try:
-        # Durée visée avec marge : une coupe ne tombe qu'à l'image-clé suivante,
-        # et le débit varie d'un passage à l'autre.
-        # Tranches égales, le moins nombreuses possible, avec 10 % de marge.
-        # Une coupe ne tombe qu'à l'image-clé suivante et le débit varie : une
-        # tranche qui dépasse quand même est recoupée par `_fit`.
-        seconds = max(info.duration / math.ceil(info.size / (limit * 0.9)), 10)
-        log.info("%s : découpage sans ré-encodage, tranches de %.0f min",
-                 source.name, seconds / 60)
-        pieces = _segment(source, work / "p", seconds, info.duration, on_progress)
+        # Les coupes suivent la taille réelle des données, pas la durée : un
+        # passage animé pèse plus qu'un plan fixe. Chaque coupe tombe sur une
+        # image-clé, la seule position possible sans ré-encoder.
+        keyframes, total = _scan_keyframes(source, info.duration, scan)
+        times = _plan_cuts(keyframes, total, limit * CUT_SAFETY)
+        log.info("%s : découpage sans ré-encodage en %d parties d'environ %.0f Mo",
+                 source.name, len(times) + 1, total / (len(times) + 1) / MO)
+        pieces = _segment(source, work / "p", times, info.duration, cut)
 
-        # Une tranche plus dense que prévu est recoupée, elle seule.
+        # Estimation déjouée (index MP4 plus gros que prévu) : seule la partie
+        # en trop est recoupée.
         final: list[Path] = []
         for piece in pieces:
-            final.extend(_fit(piece, limit, seconds))
+            final.extend(_fit(piece, limit))
 
         outputs = []
         for index, piece in enumerate(final, start=1):
@@ -219,11 +231,104 @@ def split_copy(
     return outputs
 
 
-def _segment(source: Path, prefix: Path, seconds: float, duration: float,
+def _scan_keyframes(source: Path, duration: float,
+                    on_progress: Progress = None) -> tuple[list[tuple[float, int]], int]:
+    """Images-clés de la vidéo : (instant en secondes depuis le début, octets
+    écrits avant elle), et le total. Lit les en-têtes de paquets de la piste
+    vidéo et de la piste audio conservées, sans rien décoder.
+
+    Les paquets sont comptés dans l'ordre du fichier : c'est l'ordre dans lequel
+    le découpage les range dans les parties."""
+    streams = subprocess.run(
+        ["ffprobe", "-v", "error", "-show_entries", "stream=index,codec_type:format=start_time",
+         "-of", "json", str(source)],
+        capture_output=True, text=True, check=True,
+    )
+    data = json.loads(streams.stdout)
+    kinds = [s["codec_type"] for s in data["streams"]]
+    video = kinds.index("video")
+    audio = kinds.index("audio") if "audio" in kinds else -1
+    # ffmpeg ramène le début du fichier à 0 : les instants de coupe aussi.
+    start = float(data.get("format", {}).get("start_time") or 0)
+
+    keyframes: list[tuple[float, int]] = []
+    total = 0
+    proc = subprocess.Popen(
+        ["ffprobe", "-v", "error", "-show_entries", "packet=stream_index,pts_time,size,flags",
+         "-of", "csv=p=0", str(source)],
+        stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, bufsize=1 << 16,
+    )
+    for count, line in enumerate(proc.stdout):
+        stream, pts, size, flags = line.split(",", 4)[:4]
+        index = int(stream)
+        if index != video and index != audio:
+            continue
+        if index == video and "K" in flags and pts != "N/A":
+            keyframes.append((float(pts) - start, total))
+        total += int(size) + MP4_BYTES_PER_PACKET
+        if on_progress and duration and count % 5000 == 0 and pts != "N/A":
+            on_progress(min(max(float(pts) - start, 0) / duration, 1.0))
+    _, stderr = proc.communicate()
+    if proc.returncode != 0 or not keyframes:
+        raise media.FFmpegError(f"lecture des images-clés impossible : {stderr.strip()[-500:]}")
+    return keyframes, total
+
+
+def _plan_cuts(keyframes: list[tuple[float, int]], total: int, cap: float) -> list[float]:
+    """Instants de coupe donnant le moins de parties possible sous `cap` octets,
+    de tailles aussi proches que possible.
+
+    1. Au plus loin : chaque partie s'arrête à la dernière image-clé qui la
+       garde sous la limite. Cela donne le nombre minimal de parties, n.
+    2. Équilibrage : la k-ième coupe vise k × total / n, à l'image-clé la plus
+       proche parmi celles qui laissent assez de place aux parties suivantes."""
+    offsets = [offset for _, offset in keyframes]
+    budget = cap - MP4_FIXED_BYTES
+
+    def latest(position: int) -> int:
+        """Dernière image-clé à laquelle couper une partie commencée à `position`."""
+        index = bisect.bisect_right(offsets, offsets[position] + budget) - 1
+        if index <= position:
+            raise media.FFmpegError("écart entre images-clés plus gros que la taille maximale")
+        return index
+
+    # 1. Nombre minimal de parties.
+    greedy, position = [], 0
+    while total - offsets[position] > budget:
+        position = latest(position)
+        greedy.append(position)
+    parts = len(greedy) + 1
+    if parts == 1:
+        return []
+
+    # Coupe au plus tôt possible pour chaque rang, en partant de la fin : ce qui
+    # suit la coupe k doit tenir dans les parties restantes.
+    earliest = [0] * parts
+    bound = total - budget
+    for k in range(parts - 1, 0, -1):
+        earliest[k] = bisect.bisect_left(offsets, bound)
+        bound = offsets[earliest[k]] - budget
+
+    # 2. Équilibrage entre le plus tôt et le plus tard possible.
+    cuts, position = [], 0
+    for k in range(1, parts):
+        low, high = max(earliest[k], position + 1), latest(position)
+        ideal = bisect.bisect_left(offsets, k * total / parts, low, high + 1)
+        choices = [i for i in (ideal - 1, ideal) if low <= i <= high] or [high]
+        position = min(choices, key=lambda i: abs(offsets[i] - k * total / parts))
+        cuts.append(position)
+    return [keyframes[i][0] for i in cuts]
+
+
+def _segment(source: Path, prefix: Path, times: list[float], duration: float,
              on_progress: Progress = None) -> list[Path]:
+    # Coupe juste avant l'instant de l'image-clé : un arrondi ne doit pas la
+    # faire glisser à l'image-clé suivante.
+    split = (["-segment_times", ",".join(f"{max(t - 0.001, 0.001):.3f}" for t in times)]
+             if times else ["-segment_time", f"{duration + 3600:.0f}"])
     media.run(
         ["-i", str(source), "-map", "0:v:0", "-map", "0:a:0?", "-c", "copy",
-         "-f", "segment", "-segment_time", f"{seconds:.3f}", "-reset_timestamps", "1",
+         "-f", "segment", *split, "-reset_timestamps", "1",
          "-segment_format", "mp4", "-segment_format_options", "movflags=+faststart",
          f"{prefix}%04d.mp4"],
         duration=duration, on_progress=on_progress,
@@ -231,16 +336,20 @@ def _segment(source: Path, prefix: Path, seconds: float, duration: float,
     return sorted(prefix.parent.glob(f"{prefix.name}*.mp4"))
 
 
-def _fit(piece: Path, limit: int, seconds: float, depth: int = 0) -> list[Path]:
-    if piece.stat().st_size <= limit:
+def _fit(piece: Path, limit: int, depth: int = 0) -> list[Path]:
+    size = piece.stat().st_size
+    if size <= limit:
         return [piece]
-    if depth >= 4:
+    if depth >= 3:
         raise media.FFmpegError(f"{piece.name} reste au-dessus de la limite après découpage")
-    info = media.probe(piece)
-    sub = piece.with_name(piece.stem + "_")
-    pieces = _segment(piece, sub, seconds / 2, info.duration)
+    # Même découpage selon la taille, avec une marge élargie de l'écart constaté.
+    duration = media.probe(piece).duration
+    keyframes, total = _scan_keyframes(piece, duration)
+    cap = limit * CUT_SAFETY * min(limit / size, 0.98) ** (depth + 1)
+    pieces = _segment(piece, piece.with_name(piece.stem + "_"),
+                      _plan_cuts(keyframes, total, cap), duration)
     piece.unlink()
-    return [p for chunk in pieces for p in _fit(chunk, limit, seconds / 2, depth + 1)]
+    return [p for chunk in pieces for p in _fit(chunk, limit, depth + 1)]
 
 
 def _encode_to_size(
