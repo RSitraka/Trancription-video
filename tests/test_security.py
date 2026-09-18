@@ -624,3 +624,11 @@ def test_work_path_defaults_to_docker_volume():
     raw = (ROOT / "docker-compose.yml").read_text()
     assert raw.count("${WORK_PATH:-data}:/data") == 2                  # x-app et api
     assert re.search(r"^# WORK_PATH=", (ROOT / ".env.example").read_text(), re.M)
+
+
+def test_ui_exposes_rag_search_and_indexing():
+    """Le serveur sait indexer et chercher : l'interface doit le proposer."""
+    html = (ROOT / "source" / "static" / "index.html").read_text(encoding="utf-8")
+    assert 'id="view-recherche"' in html and "'recherche'" in html
+    assert "/search?q=" in html and "json('/sources')" in html
+    assert "/index`" in html or "/index'" in html                      # bouton Indexer

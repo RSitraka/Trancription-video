@@ -276,9 +276,10 @@
       <a href="#/fichiers" data-view="fichiers" title="Fichiers à traiter (Alt+2)"><svg class="i"><use href="#i-folder"/></svg><span>Fichiers à traiter</span><em id="navMedia"></em></a>
       <a href="#/traitements" data-view="traitements" title="Traitements (Alt+3)"><svg class="i"><use href="#i-activity"/></svg><span>Traitements</span><em id="navJobs"></em></a>
       <a href="#/resultats" data-view="resultats" title="Fichiers produits (Alt+4)"><svg class="i"><use href="#i-box"/></svg><span>Fichiers produits</span><em id="navOutputs"></em></a>
+      <a href="#/recherche" data-view="recherche" title="Recherche dans les vidéos (Alt+5)"><svg class="i"><use href="#i-search"/></svg><span>Recherche</span><em id="navSources"></em></a>
     </nav>
     <div class="side-foot">
-      <a class="side-link" href="#/reglages" data-view="reglages" title="Réglages (Alt+5)"><svg class="i"><use href="#i-sliders"/></svg><span>Réglages</span></a>
+      <a class="side-link" href="#/reglages" data-view="reglages" title="Réglages (Alt+6)"><svg class="i"><use href="#i-sliders"/></svg><span>Réglages</span></a>
     </div>
   </aside>
 
@@ -395,6 +396,26 @@
       <div class="card"><div id="outputs" class="list"></div></div>
     </section>
 
+    <!-- Recherche dans le contenu des vidéos -->
+    <section class="view" id="view-recherche" hidden>
+      <div class="page-head">
+        <div><h1>Recherche</h1><p class="sub">Retrouver un passage dans les vidéos transcrites, et la minute exacte où il est dit.</p></div>
+      </div>
+      <div class="card">
+        <form class="settings" id="searchForm" style="gap:10px">
+          <label class="search grow" style="max-width:520px"><svg class="i"><use href="#i-search"/></svg>
+            <input type="search" id="q" class="grow" style="width:auto"
+              placeholder="Une question ou quelques mots : « comment créer un agent »" aria-label="Recherche"></label>
+          <label class="field">dans
+            <select id="searchSource" class="seg" style="padding:6px 10px"><option value="">toutes les vidéos</option></select>
+          </label>
+          <button type="submit"><svg class="i"><use href="#i-search"/></svg>Rechercher</button>
+        </form>
+        <p class="hint" id="searchHint">Seules les vidéos indexées apparaissent ici : bouton <b>Indexer</b> sur un traitement terminé.</p>
+      </div>
+      <div class="card"><div class="list" id="results"></div></div>
+    </section>
+
     <!-- Réglages -->
     <section class="view" id="view-reglages" hidden>
       <div class="page-head">
@@ -424,9 +445,10 @@
       <div class="card">
         <div class="card-head"><h2>Raccourcis clavier</h2></div>
         <table class="keys">
-          <tr><td><kbd>Alt</kbd> + <kbd>1</kbd> … <kbd>5</kbd></td><td>Changer de page</td></tr>
+          <tr><td><kbd>Alt</kbd> + <kbd>1</kbd> … <kbd>6</kbd></td><td>Changer de page</td></tr>
           <tr><td><kbd>Ctrl</kbd> + <kbd>O</kbd></td><td>Envoyer un fichier depuis ce PC</td></tr>
           <tr><td><kbd>Ctrl</kbd> + <kbd>F</kbd></td><td>Rechercher dans les traitements</td></tr>
+          <tr><td><kbd>Ctrl</kbd> + <kbd>K</kbd></td><td>Rechercher dans le contenu des vidéos</td></tr>
           <tr><td><kbd>F5</kbd></td><td>Actualiser</td></tr>
         </table>
       </div>
@@ -528,7 +550,7 @@ function fail(message) {
 $('errorClose').onclick = () => fail('');
 
 // --- Navigation --------------------------------------------------------------
-const VIEWS = ['accueil', 'fichiers', 'traitements', 'resultats', 'reglages'];
+const VIEWS = ['accueil', 'fichiers', 'traitements', 'resultats', 'recherche', 'reglages'];
 let view = 'accueil';
 function route() {
   const match = location.hash.match(/^#\/(\w+)/);
@@ -549,6 +571,8 @@ document.addEventListener('keydown', (e) => {
     e.preventDefault(); $('file').click();
   } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'f') {
     e.preventDefault(); go('traitements'); $('jobSearch').focus();
+  } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') {
+    e.preventDefault(); go('recherche'); $('q').focus();
   }
 });
 
@@ -912,6 +936,16 @@ function fileIcon(name) {
   return `<div class="ficon video">${ico(AUDIO.test(name) ? 'audio' : 'film')}</div>`;
 }
 
+// Indexation pour la recherche : proposée dès qu'un traitement a produit une
+// transcription. `indexed` porte l'état renvoyé par le serveur.
+function indexButton(j) {
+  if (j.status !== 'done') return '';
+  if (j.indexed === 'indexation en cours…') return '<span class="badge run">indexation…</span>';
+  if (!j.indexed) return `<button type="button" class="ghost" data-index="${j.id}" title="Rendre cette vidéo cherchable">${ico('search')}Indexer</button>`;
+  const failed = j.indexed.startsWith('échec') || j.indexed.startsWith('aucune');
+  return `<button type="button" class="ghost" data-index="${j.id}" title="${esc(j.indexed)}">${ico(failed ? 'alert' : 'check')}${failed ? 'Réessayer' : 'Réindexer'}</button>`;
+}
+
 let lastSnapshot = '';
 function renderJobs(jobs, force = false) {
   jobsCache = jobs;
@@ -965,7 +999,7 @@ function renderJobs(jobs, force = false) {
           ${j.error ? `<details class="error" data-id="${j.id}" ${open.has(j.id) ? 'open' : ''}>
             <summary>${esc(j.error.split('\n')[0].slice(0, 140))}</summary><pre>${esc(j.error)}</pre></details>` : ''}
         </div>
-        <div class="files">${jobLinks(j, info, open)}</div>
+        <div class="files">${jobLinks(j, info, open)}${indexButton(j)}</div>
         <span class="badge ${info.badge}">${esc(STATUS[j.status] || j.status)}</span>
         <button type="button" class="icon danger" data-del="${j.id}" title="Retirer de la liste">${ico('x')}</button>
       </div>`;
@@ -973,6 +1007,16 @@ function renderJobs(jobs, force = false) {
     ? `<div class="more"><button type="button" class="ghost" id="more">Afficher ${Math.min(PAGE, list.length - shown)} de plus (${list.length - shown} restants)</button></div>` : '');
 
   if ($('more')) $('more').onclick = () => { shown += PAGE; renderJobs(jobsCache, true); };
+  $('jobs').querySelectorAll('[data-index]').forEach((b) => b.onclick = async () => {
+    b.disabled = true;
+    try {
+      await post(`/jobs/${b.dataset.index}/index`, {});
+      toast('Indexation lancée : la vidéo sera cherchable dans un instant', 'search');
+    } catch (error) {
+      fail("Indexation impossible : " + error.message);
+    }
+    refresh();
+  });
   $('jobs').querySelectorAll('[data-del]').forEach((b) => b.onclick = async () => {
     const job = jobs.find((j) => j.id === b.dataset.del);
     const choice = await askRemove(job);
@@ -1172,6 +1216,74 @@ async function deleteOutputs(group) {
 }
 $('clearOutputs').onclick = () => deleteOutputs(null);
 
+// --- Recherche dans le contenu des vidéos ------------------------------------
+let searching = false;
+async function loadSources() {
+  let sources = [];
+  try { sources = await json('/sources'); } catch { return; }
+  $('navSources').textContent = sources.length || '';
+  const current = $('searchSource').value;
+  $('searchSource').innerHTML = '<option value="">toutes les vidéos</option>'
+    + sources.map((name) => `<option value="${esc(name)}">${esc(name)}</option>`).join('');
+  $('searchSource').value = current;
+  $('searchHint').innerHTML = sources.length
+    ? `${plural(sources.length, 'vidéo')} indexée${sources.length > 1 ? 's' : ''}. `
+      + 'Pour en ajouter une : bouton <b>Indexer</b> sur un traitement terminé.'
+    : 'Aucune vidéo indexée. Va dans <b>Traitements</b> et clique sur <b>Indexer</b> '
+      + 'sur une vidéo terminée : son texte devient cherchable.';
+}
+
+$('searchForm').onsubmit = async (event) => {
+  event.preventDefault();
+  const question = $('q').value.trim();
+  if (question.length < 2 || searching) return;
+  searching = true;
+  // Le modèle de recherche (plusieurs Go) se charge à la première question.
+  $('results').innerHTML = emptyState('clock', 'Recherche en cours…<br>'
+    + '<span class="muted">La toute première question télécharge le moteur de recherche '
+    + '(2 Go) : compter quelques minutes. Les suivantes sont immédiates.</span>');
+  try {
+    const source = $('searchSource').value;
+    const hits = await json(`/search?q=${encodeURIComponent(question)}&limit=8`
+      + (source ? `&source=${encodeURIComponent(source)}` : ''));
+    renderResults(hits, question);
+  } catch (error) {
+    $('results').innerHTML = emptyState('alert', error.status === 503
+      ? 'Moteur de recherche indisponible. Vérifie que le service qdrant tourne.'
+      : esc(error.message));
+  } finally {
+    searching = false;
+  }
+};
+
+function renderResults(hits, question) {
+  if (!hits.length) {
+    $('results').innerHTML = emptyState('search',
+      `Aucun passage trouvé pour « ${esc(question)} ».<br>`
+      + '<span class="muted">Essaie d\'autres mots, ou indexe d\'autres vidéos.</span>');
+    return;
+  }
+  $('results').innerHTML = hits.map((h) => {
+    const images = (h.frames || []).slice(0, 3).map((f) =>
+      `<img src="/frames/${f.split('/').map(encodeURIComponent).join('/')}" alt="" loading="lazy"
+         style="height:64px;border-radius:6px;border:1px solid var(--line)">`).join(' ');
+    const screen = (h.screen_text || []).length
+      ? `<div class="meta">à l'écran : ${esc(h.screen_text.slice(0, 6).join(' · '))}</div>` : '';
+    return `
+      <div class="row" style="align-items:flex-start">
+        <div class="ficon video">${ico('play')}</div>
+        <div class="grow">
+          <div class="name" title="${esc(h.source)}">${esc(h.source)}
+            <span class="badge run">${esc(h.timecode || '')}</span>
+            <span class="muted">score ${h.score}</span></div>
+          <div style="margin-top:4px">${esc(h.text)}</div>
+          ${screen}
+          ${images ? `<div class="files" style="margin-top:6px">${images}</div>` : ''}
+        </div>
+      </div>`;
+  }).join('');
+}
+
 // --- Actualisation -----------------------------------------------------------
 function setConnection(state, text) {
   $('sbConn').innerHTML = `<span class="dot ${state}"></span><span></span>`;
@@ -1189,6 +1301,7 @@ async function refresh() {
     notifyChanges(jobs);
     busy = jobs.some((j) => ACTIVE.includes(j.status));
     renderOutputs(await json('/outputs'));
+    loadSources();
     $('sbTime').textContent = 'Actualisé à ' + new Date().toLocaleTimeString('fr-FR');
   } catch (error) {
     // 401 : le serveur répond, c'est la session qui manque.
@@ -1211,6 +1324,7 @@ async function autoLogin() {
 
 autoLogin().then(() => {
   route();
+  $('results').innerHTML = emptyState('search', 'Pose une question pour retrouver le passage exact dans tes vidéos.');
   json('/settings').then((s) => {
     for (const id of ['mediaPath', 'setMediaPath']) $(id).textContent = s.media_path;
     for (const id of ['outputPath', 'setOutputPath']) $(id).textContent = s.output_path;
