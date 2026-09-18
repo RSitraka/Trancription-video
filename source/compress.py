@@ -138,6 +138,12 @@ def compress_to_size(
 
     parts = plan_parts(info, limit, split)
 
+    # Place pour les parties restantes : jamais plus que la source, ni que
+    # parts × limite. Les parties déjà faites (reprise) occupent déjà la leur.
+    done = sum(p.stat().st_size for p in destination.parent.glob(f"{destination.stem}_*{destination.suffix}"))
+    media.require_space(destination.parent, max(min(info.size, parts * limit) - done, 0),
+                        "les fichiers compressés")
+
     # Source déjà compacte : la couper suffit. Ré-encoder prendrait des heures,
     # dégraderait l'image et ne ferait pas gagner de place. On coupe dès que
     # cela ne produit guère plus de fichiers qu'un ré-encodage.

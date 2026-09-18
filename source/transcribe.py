@@ -143,6 +143,12 @@ def transcribe_media(
 
     audio = work_dir / "audio.wav"
     if not audio.exists():
+        # Piste audio complète, plus un morceau extrait à la fois.
+        media.require_space(
+            work_dir,
+            int((info.duration + settings.chunk_duration) * media.WAV_BYTES_PER_SECOND),
+            "la piste audio",
+        )
         log.info("Extraction audio de %s (%.1f Go)", source.name, info.size_gb)
         media.extract_audio(
             source, audio,

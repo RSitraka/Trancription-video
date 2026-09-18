@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import logging
 import re
+import shutil
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path
@@ -17,6 +18,29 @@ _PROGRESS_TIME = re.compile(r"out_time_ms=(\d+)")
 
 class FFmpegError(RuntimeError):
     pass
+
+
+class DiskSpaceError(RuntimeError):
+    """Espace disque insuffisant pour une étape : refusée avant de commencer."""
+
+
+# Marge laissée libre sur le disque après une étape.
+SPACE_MARGIN = 1024**3
+
+# WAV 16 kHz mono 16 bits : octets par seconde d'audio extrait.
+WAV_BYTES_PER_SECOND = 16_000 * 2
+
+
+def require_space(folder: Path, needed: int, what: str) -> None:
+    """Refuse une étape qui remplirait le disque en cours de route : sur un
+    fichier de plusieurs To, l'échec arriverait après des heures de travail."""
+    folder.mkdir(parents=True, exist_ok=True)
+    free = shutil.disk_usage(folder).free
+    if needed + SPACE_MARGIN > free:
+        raise DiskSpaceError(
+            f"espace disque insuffisant pour {what} : {needed / 1e9:.1f} Go nécessaires "
+            f"(+ {SPACE_MARGIN / 1e9:.0f} Go de marge), {free / 1e9:.1f} Go libres dans {folder}"
+        )
 
 
 @dataclass(slots=True)
@@ -108,7 +132,8 @@ def extract_audio(
     """Extrait la piste audio en WAV 16 kHz mono, format attendu par Whisper.
 
     Le fichier source est lu en flux : la mémoire utilisée ne dépend pas de
-    sa taille.
+    sa taille. Au-delà de 4 Go (~37 h d'audio), le WAV classique ne peut plus
+    indiquer sa taille : `-rf64 auto` passe alors au format RF64.
     """
     destination.parent.mkdir(parents=True, exist_ok=True)
     info = probe(source)
@@ -120,7 +145,7 @@ def extract_audio(
             "-i", str(source),
             "-vn", "-sn", "-dn",
             "-ac", "1", "-ar", "16000",
-            "-c:a", "pcm_s16le",
+            "-c:a", "pcm_s16le", "-rf64", "auto",
             str(destination),
         ],
         duration=info.duration,
