@@ -632,3 +632,8 @@ def test_ui_exposes_rag_search_and_indexing():
     assert 'id="view-recherche"' in html and "'recherche'" in html
     assert "/search?q=" in html and "json('/sources')" in html
     assert "/index`" in html or "/index'" in html                      # bouton Indexer
+
+
+def test_ui_search_can_be_opened_from_url():
+    html = (ROOT / "source" / "static" / "index.html").read_text(encoding="utf-8")
+    assert "searchFromUrl" in html and "URLSearchParams(location.search)" in html

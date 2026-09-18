@@ -796,8 +796,18 @@ docker compose run --rm cli python main.py search "comment créer un agent IA"
 
 ### Depuis l'interface
 
-Un champ de recherche en haut de page, et un bouton **Indexer** sur chaque
-travail terminé. Les résultats affichent le timecode, le score et le passage.
+Page **Recherche** (Alt+5, ou Ctrl+K) : une question en langage naturel, un
+filtre par vidéo, et des résultats affichant le timecode, le score, le passage
+et les captures d'écran quand l'OCR est activé. Une recherche peut aussi être
+ouverte directement : `http://localhost:8100/?q=comment+créer+un+agent`.
+
+Pour rendre une vidéo cherchable : bouton **Indexer** sur un traitement terminé
+(page **Traitements**). L'état s'affiche ensuite sur le bouton : nombre de
+passages indexés, ou échec à réessayer.
+
+> La toute première question télécharge le moteur de recherche
+> (`intfloat/multilingual-e5-large`, ~2 Go) dans le volume `models` : compter
+> quelques minutes. Les questions suivantes répondent en une fraction de seconde.
 
 ### Par l'API
 

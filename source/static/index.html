@@ -1322,6 +1322,15 @@ async function autoLogin() {
   await login(token).catch(() => {});
 }
 
+// Une recherche peut être ouverte directement : /?q=ma+question
+function searchFromUrl() {
+  const question = new URLSearchParams(location.search).get('q');
+  if (!question) return;
+  $('q').value = question;
+  go('recherche');
+  $('searchForm').requestSubmit();
+}
+
 autoLogin().then(() => {
   route();
   $('results').innerHTML = emptyState('search', 'Pose une question pour retrouver le passage exact dans tes vidéos.');
@@ -1333,6 +1342,7 @@ autoLogin().then(() => {
   onSettings();
   loadMedia();
   refresh();
+  searchFromUrl();
 });
 </script>
 </body>
