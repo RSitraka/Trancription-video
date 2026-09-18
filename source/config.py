@@ -54,8 +54,25 @@ class Settings(BaseSettings):
     frame_interval: int = 2
     scene_threshold: float = 18.0
 
+    # --- Accès à l'API ---
+    # Mode local (défaut) : pas de connexion, mais seuls les noms d'hôte ci-dessous
+    # sont servis et les requêtes venant d'un autre site web sont refusées.
+    # REQUIRE_TOKEN=true : jeton exigé en plus — indispensable si l'API est
+    # ouverte au réseau (BIND_ADDRESS=0.0.0.0).
+    require_token: bool = False
+    allowed_hosts: str = "localhost,127.0.0.1,::1"
+    # Jeton du mode REQUIRE_TOKEN. Vide : un jeton aléatoire est créé une fois
+    # dans `api_token_file` et journalisé.
+    api_token: str | None = None
+    api_token_file: Path = Path("/data/api_token")
+
+    # --- Upload ---
+    upload_part_max_mb: int = 128          # l'interface envoie des morceaux de 64 Mo
+    upload_free_margin_mb: int = 1024      # espace disque laissé libre après un upload
+
     # --- Services ---
-    database_url: str = "postgresql://transcription:transcription@postgres:5432/transcription"
+    # Sans mot de passe par défaut : il vient de POSTGRES_PASSWORD (docker-compose.yml).
+    database_url: str = "postgresql://transcription@postgres:5432/transcription"
     redis_url: str = "redis://redis:6379/0"
     qdrant_url: str = "http://qdrant:6333"
     qdrant_collection: str = "transcriptions"

@@ -12,11 +12,11 @@ import zipfile
 from pathlib import Path
 from urllib.parse import quote
 
-from fastapi import BackgroundTasks, Body, FastAPI, HTTPException, Query, Request
+from fastapi import BackgroundTasks, Body, Depends, FastAPI, HTTPException, Query, Request
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
-from source import __version__, media
+from source import __version__, auth, media
 from source.config import settings
 from source.db import Job, Part, SessionLocal, init_db
 from source.tasks import celery_app, process_job
@@ -27,11 +27,18 @@ app = FastAPI(
     title="Transcription Vidéo & Audio",
     version=__version__,
     description="Transcription et compression de fichiers volumineux (500 Go+).",
+    # Jeton exigé partout, sauf auth.PUBLIC_PATHS (voir source/auth.py).
+    dependencies=[Depends(auth.require)],
 )
 
 
 STATIC_DIR = Path(__file__).parent / "static"
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
+
+
+MO = 1000**2
+# Au-delà, un index de morceau ne correspond à aucun envoi réel (64 Mo × 100 000 = 6,4 To).
+MAX_PARTS = 100_000
 
 
 def uploads_dir(job_id: str) -> Path:
@@ -41,6 +48,8 @@ def uploads_dir(job_id: str) -> Path:
 @app.on_event("startup")
 def startup() -> None:
     settings.ensure_dirs()
+    if settings.require_token:
+        auth.token()                      # crée et journalise le jeton si besoin
     try:
         init_db()
     except Exception as error:            # la base peut démarrer après l'API
@@ -65,6 +74,13 @@ def index() -> FileResponse:
     return FileResponse(STATIC_DIR / "index.html")
 
 
+@app.get("/favicon.ico", include_in_schema=False)
+def favicon() -> FileResponse:
+    """Icône de l'onglet : les navigateurs la demandent à la racine, sans jeton."""
+    return FileResponse(STATIC_DIR / "icon.ico", media_type="image/x-icon",
+                        headers={"Cache-Control": "public, max-age=86400"})
+
+
 @app.get("/api")
 def api_root() -> dict:
     """Point d'entrée JSON : rappelle les routes disponibles."""
@@ -86,7 +102,28 @@ def api_root() -> dict:
 
 @app.get("/health")
 def health() -> dict:
-    return {"status": "ok", "version": __version__}
+    # Version déployée (make deploy), sinon celle du paquet.
+    version = os.environ.get("APP_VERSION") or __version__
+    return {"status": "ok", "version": version}
+
+
+@app.post("/login")
+def login(payload: dict = Body(...)) -> JSONResponse:
+    """Échange le jeton contre un cookie de session pour le navigateur."""
+    given = payload.get("token")
+    if not isinstance(given, str) or not auth.check_token(given.strip()):
+        raise HTTPException(401, "jeton invalide")
+    response = JSONResponse({"status": "ok"})
+    response.set_cookie(auth.COOKIE, auth.session_value(), max_age=auth.SESSION_SECONDS,
+                        httponly=True, samesite="strict", path="/")
+    return response
+
+
+@app.post("/logout")
+def logout() -> JSONResponse:
+    response = JSONResponse({"status": "ok"})
+    response.delete_cookie(auth.COOKIE, path="/")
+    return response
 
 
 @app.get("/media")
@@ -130,6 +167,34 @@ def _allowed(path: Path) -> Path:
     if not resolved.exists():
         raise HTTPException(404, f"fichier introuvable : {path}")
     return resolved
+
+
+def _upload_name(filename) -> str:
+    """Nom d'un fichier envoyé : un simple nom, jamais un chemin.
+
+    Sans ce contrôle, « ../../x » ou « /app/source/tasks.py » ferait écrire
+    l'assemblage n'importe où — y compris par-dessus le code (VULN-01)."""
+    if (not isinstance(filename, str) or not filename.strip()
+            or filename in (".", "..") or len(filename.encode()) > 255
+            or any(c in filename for c in "/\\\x00")):
+        raise HTTPException(400, "nom de fichier invalide : un nom simple est attendu, sans chemin")
+    return filename
+
+
+def _declared_size(size) -> int:
+    """Taille annoncée d'un upload : bornée par l'espace disque réellement libre.
+
+    Les morceaux puis l'assemblage (un morceau de plus au pire) doivent tenir en
+    laissant une marge : un disque plein ferait échouer tous les traitements."""
+    if isinstance(size, bool) or not isinstance(size, int) or size <= 0:
+        raise HTTPException(400, "'size' doit être un nombre d'octets positif")
+    settings.work_dir.mkdir(parents=True, exist_ok=True)
+    free = shutil.disk_usage(settings.work_dir).free
+    needed = size + (settings.upload_part_max_mb + settings.upload_free_margin_mb) * MO
+    if needed > free:
+        raise HTTPException(507, f"espace disque insuffisant : {size / MO:.0f} Mo annoncés, "
+                                 f"{max(free - needed + size, 0) / MO:.0f} Mo utilisables")
+    return size
 
 
 def _folder_key(filename: str, subdir: str | None) -> tuple[str, str]:
@@ -216,9 +281,11 @@ def create_job(payload: dict = Body(...)) -> dict:
         filename = payload.get("filename")
         if not filename:
             raise HTTPException(400, "fournir soit 'path', soit 'filename' + 'size'")
+        filename = _upload_name(filename)
+        size = _declared_size(payload.get("size"))
 
         job = Job(
-            filename=filename, size=int(payload.get("size", 0)),
+            filename=filename, size=size,
             status="uploading", mode=mode, options=options,
         )
         session.add(job)
@@ -229,20 +296,44 @@ def create_job(payload: dict = Body(...)) -> dict:
 
 @app.put("/jobs/{job_id}/parts/{index}")
 async def upload_part(job_id: str, index: int, request: Request) -> dict:
-    """Reçoit un morceau d'upload en flux — jamais de fichier entier en mémoire."""
+    """Reçoit un morceau d'upload en flux — jamais de fichier entier en mémoire.
+
+    Le total reçu ne peut pas dépasser la taille annoncée à la création du job,
+    elle-même bornée par l'espace libre (VULN-02)."""
     with SessionLocal() as session:
         job = session.get(Job, job_id)
         if job is None:
             raise HTTPException(404, "job introuvable")
+        if job.status != "uploading":
+            raise HTTPException(409, f"upload déjà terminé (statut : {job.status})")
+        declared = job.size
+        others = sum(p.size for p in job.parts if p.index != index)
+
+    # Chaque morceau fait au moins un octet : jamais plus de morceaux que d'octets.
+    if not 0 <= index < min(MAX_PARTS, declared):
+        raise HTTPException(400, f"numéro de morceau invalide : {index}")
+    allowed = min(settings.upload_part_max_mb * MO, declared - others)
+    length = request.headers.get("content-length")
+    if length and length.isdigit() and int(length) > allowed:
+        raise HTTPException(413, f"morceau trop gros : {int(length)} octets, {max(allowed, 0)} permis")
 
     target = uploads_dir(job_id) / f"part_{index:06d}"
     target.parent.mkdir(parents=True, exist_ok=True)
 
     size = 0
-    with target.open("wb") as handle:
-        async for block in request.stream():
-            handle.write(block)
-            size += len(block)
+    # Nom temporaire : un morceau refusé en cours de route n'écrase pas un
+    # morceau valide déjà reçu sous le même numéro.
+    pending = target.with_name(target.name + ".encours")
+    try:
+        with pending.open("wb") as handle:
+            async for block in request.stream():
+                size += len(block)
+                if size > allowed:        # en-tête absent ou mensonger
+                    raise HTTPException(413, f"morceau trop gros : plus de {max(allowed, 0)} octets")
+                handle.write(block)
+        pending.replace(target)
+    finally:
+        pending.unlink(missing_ok=True)
 
     with SessionLocal() as session:
         existing = (
@@ -276,11 +367,18 @@ def complete_upload(job_id: str) -> dict:
         if _folder_key(filename, (job.options or {}).get("subdir")) in _busy_folders(session, job_id):
             raise HTTPException(409, f"« {filename} » est déjà en cours de traitement")
 
-    parts = sorted(uploads_dir(job_id).glob("part_*"))
+    parts = sorted(p for p in uploads_dir(job_id).glob("part_*") if p.suffix != ".encours")
     if not parts:
         raise HTTPException(400, "aucun morceau reçu")
+    received = sum(p.stat().st_size for p in parts)
+    if received != job.size:
+        raise HTTPException(400, f"envoi incomplet : {received} octets reçus sur {job.size}")
 
-    destination = settings.work_dir / "sources" / job_id / filename
+    # Revérifié ici : un job créé avant ce contrôle peut encore être en base.
+    folder = (settings.work_dir / "sources" / job_id).resolve()
+    destination = (folder / _upload_name(filename)).resolve()
+    if destination.parent != folder:
+        raise HTTPException(400, "nom de fichier invalide")
     destination.parent.mkdir(parents=True, exist_ok=True)
 
     # Concaténation en flux : la mémoire reste constante quel que soit le volume.
@@ -304,7 +402,7 @@ def complete_upload(job_id: str) -> dict:
 
 
 @app.get("/jobs")
-def list_jobs(limit: int = 50) -> list[dict]:
+def list_jobs(limit: int = Query(50, ge=1, le=10_000)) -> list[dict]:
     with SessionLocal() as session:
         jobs = session.query(Job).order_by(Job.created_at.desc()).limit(limit).all()
         return [_with_sizes(job) for job in jobs]

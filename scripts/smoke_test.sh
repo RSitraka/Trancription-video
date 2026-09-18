@@ -20,8 +20,14 @@ check() {  # check <libellé> <commande...>
     fail=$((fail + 1))
   fi
 }
+# Même version que la stack en service (make deploy).
+export APP_TAG=${APP_TAG:-$(cat .deploy/current 2>/dev/null || echo latest)}
 cli() { docker compose run --rm -T -e WHISPER_MODEL="$MODEL" -e CHUNK_DURATION=10 cli "$@"; }
-api() { curl -s --max-time 30 "$@"; }
+# Jeton d'accès : API_TOKEN de .env, sinon celui que l'API a généré.
+TOKEN=$(grep -E '^API_TOKEN=' .env 2>/dev/null | cut -d= -f2- | awk '{print $1}')
+TOKEN=${TOKEN:-$(docker compose exec -T api cat /data/api_token 2>/dev/null | tr -d '[:space:]')}
+export TOKEN
+api() { curl -s --max-time 30 -H "Authorization: Bearer $TOKEN" "$@"; }
 export -f api            # pour que les sous-shells `bash -c` la voient aussi
 
 echo "Port API : $PORT — modèle : $MODEL"
@@ -29,6 +35,15 @@ echo "Port API : $PORT — modèle : $MODEL"
 echo; echo "1. Services"
 check "conteneurs démarrés"  docker compose ps --status running --quiet
 check "API en vie"           bash -c "api localhost:$PORT/health | grep -q '\"status\":\"ok\"'"
+if grep -qiE '^REQUIRE_TOKEN=(true|1|yes|on)\b' .env 2>/dev/null; then
+  check "jeton exigé (401 sans jeton)" \
+      bash -c "curl -s -o /dev/null -w '%{http_code}' localhost:$PORT/jobs | grep -q 401"
+fi
+check "accès local accepté"  bash -c "api -o /dev/null -w '%{http_code}' localhost:$PORT/jobs | grep -q 200"
+check "autre nom d'hôte refusé (403)" \
+    bash -c "api -o /dev/null -w '%{http_code}' -H 'Host: malveillant.example' localhost:$PORT/jobs | grep -q 403"
+check "requête d'un autre site refusée (403)" \
+    bash -c "api -o /dev/null -w '%{http_code}' -X DELETE -H 'Origin: https://malveillant.example' 'localhost:$PORT/jobs?status=failed' | grep -q 403"
 check "worker connecté"      bash -c "docker compose logs worker --tail 200 | grep -q 'celery@.*ready'"
 check "postgres prêt"        docker compose exec -T postgres pg_isready -U transcription
 check "ffmpeg dans l'image"  cli ffmpeg -version
