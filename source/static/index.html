@@ -3,224 +3,457 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Compression vidéo pour le RAG</title>
+<title>Transcription Vidéo</title>
+<link rel="icon" href="/favicon.ico" sizes="any">
+<link rel="icon" type="image/png" href="/static/icon-32.png" sizes="32x32">
+<link rel="apple-touch-icon" href="/static/icon-180.png">
+<link rel="manifest" href="/static/manifest.webmanifest">
+<meta name="theme-color" content="#3b5bdb">
 <style>
   :root {
-    color-scheme: light dark;
-    --bg: #f6f6f9; --panel: #fff; --sunk: #f1f1f5; --line: #e3e3ea; --ink: #1a1a1f;
-    --muted: #6b6b76; --accent: #3b5bdb; --accent-soft: #edf0fd;
+    color-scheme: light;
+    --bg: #f4f5f8; --side: #eceef3; --panel: #fff; --sunk: #f1f2f6; --hover: rgba(40, 50, 90, .05);
+    --line: #e1e3ea; --ink: #1b1c22; --muted: #6a6c78; --accent: #3b5bdb; --accent-soft: #e8edfd;
     --ok: #2f9e44; --warn: #d9480f; --err: #e03131; --radius: 12px;
+    --shadow: 0 1px 2px rgba(20, 24, 40, .05), 0 1px 1px rgba(20, 24, 40, .03);
+  }
+  :root[data-theme=dark] {
+    color-scheme: dark;
+    --bg: #131318; --side: #18181e; --panel: #1d1d24; --sunk: #17171c; --hover: rgba(255, 255, 255, .04);
+    --line: #2b2b34; --ink: #ececef; --muted: #9a9ba6; --accent: #748ffc; --accent-soft: #242a45;
+    --ok: #51cf66; --warn: #ff922b; --err: #ff6b6b; --shadow: none;
   }
   @media (prefers-color-scheme: dark) {
-    :root {
-      --bg: #121216; --panel: #1b1b21; --sunk: #16161b; --line: #2c2c35; --ink: #ececed;
-      --muted: #9a9aa5; --accent: #748ffc; --accent-soft: #232842;
-      --ok: #51cf66; --warn: #ff922b; --err: #ff6b6b;
+    :root:not([data-theme=light]) {
+      color-scheme: dark;
+      --bg: #131318; --side: #18181e; --panel: #1d1d24; --sunk: #17171c; --hover: rgba(255, 255, 255, .04);
+      --line: #2b2b34; --ink: #ececef; --muted: #9a9ba6; --accent: #748ffc; --accent-soft: #242a45;
+      --ok: #51cf66; --warn: #ff922b; --err: #ff6b6b; --shadow: none;
     }
   }
   * { box-sizing: border-box; }
-  body {
-    margin: 0; background: var(--bg); color: var(--ink);
-    font: 15px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif;
-  }
-  main { max-width: 980px; margin: 0 auto; padding: 28px 20px 80px; }
-  code { font-size: .9em; background: var(--sunk); padding: 1px 6px; border-radius: 5px; word-break: break-all; }
   [hidden] { display: none !important; }
-
-  header { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; margin-bottom: 20px; }
-  h1 { font-size: 21px; margin: 0; letter-spacing: -0.01em; }
-  .sub { color: var(--muted); font-size: 13px; margin: 2px 0 0; }
-  .status {
-    margin-left: auto; display: inline-flex; align-items: center; gap: 7px; font-size: 12px;
-    color: var(--muted); background: var(--panel); border: 1px solid var(--line); border-radius: 20px; padding: 4px 11px;
+  html, body { height: 100%; }
+  body {
+    margin: 0; overflow: hidden; background: var(--bg); color: var(--ink);
+    font: 14px/1.45 "Segoe UI Variable Text", "Segoe UI", system-ui, -apple-system, sans-serif;
+    -webkit-font-smoothing: antialiased;
   }
-  .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); }
-  .dot.up { background: var(--ok); }
+  code { font: 12px/1.4 ui-monospace, "Cascadia Mono", Consolas, monospace; background: var(--sunk);
+    padding: 2px 6px; border-radius: 5px; word-break: break-all; }
+  a { color: var(--accent); }
+  svg.i { width: 18px; height: 18px; flex: none; fill: none; stroke: currentColor; stroke-width: 2;
+    stroke-linecap: round; stroke-linejoin: round; }
+  ::-webkit-scrollbar { width: 12px; height: 12px; }
+  ::-webkit-scrollbar-thumb { background: var(--line); border-radius: 10px; border: 3px solid transparent; background-clip: content-box; }
+  ::-webkit-scrollbar-thumb:hover { background-color: var(--muted); }
+
+  /* --- Fenêtre ------------------------------------------------------------ */
+  .app { display: grid; height: 100vh; grid-template: "side main" 1fr "status status" 26px / 232px 1fr; }
+  .sidebar { grid-area: side; background: var(--side); border-right: 1px solid var(--line);
+    display: flex; flex-direction: column; padding: 14px 10px 10px; user-select: none; min-height: 0; }
+  .brand { display: flex; align-items: center; gap: 10px; padding: 4px 8px 18px; }
+  .brand img { width: 34px; height: 34px; border-radius: 9px; }
+  .brand b { display: block; font-size: 14px; letter-spacing: -.01em; }
+  .brand span { display: block; font-size: 11px; color: var(--muted); }
+  nav { display: flex; flex-direction: column; gap: 2px; }
+  nav a, .side-link {
+    display: flex; align-items: center; gap: 10px; padding: 8px 10px; border-radius: 8px;
+    color: var(--muted); text-decoration: none; font-weight: 500;
+  }
+  nav a:hover, .side-link:hover { background: var(--hover); color: var(--ink); }
+  nav a[aria-current=page], .side-link[aria-current=page] { background: var(--accent-soft); color: var(--accent); font-weight: 600; }
+  nav a span, .side-link span { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  nav em { font-style: normal; font-size: 11px; font-weight: 600; min-width: 22px; padding: 0 7px; line-height: 19px;
+    text-align: center; border-radius: 10px; background: var(--sunk); color: var(--muted); }
+  nav em:empty { display: none; }
+  nav em.hot { background: var(--accent); color: #fff; }
+  .side-foot { margin-top: auto; display: flex; flex-direction: column; gap: 2px; border-top: 1px solid var(--line); padding-top: 8px; }
+  .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); flex: none; }
+  .dot.up { background: var(--ok); box-shadow: 0 0 0 3px color-mix(in srgb, var(--ok) 20%, transparent); }
   .dot.down { background: var(--err); }
 
-  section { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 18px 20px; margin-bottom: 16px; }
-  .head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 12px; }
-  h2 { font-size: 15px; margin: 0; font-weight: 600; }
+  .content { grid-area: main; overflow: auto; min-height: 0; scroll-behavior: smooth; }
+  .view { max-width: 1140px; margin: 0 auto; padding: 26px 34px 40px; }
+  .page-head { display: flex; align-items: flex-end; gap: 12px; flex-wrap: wrap; margin-bottom: 20px; }
+  .page-head h1 { font-size: 24px; line-height: 1.2; margin: 0; letter-spacing: -.02em; font-weight: 650; }
+  .page-head .sub { color: var(--muted); font-size: 13px; margin: 4px 0 0; }
+  .page-head .actions { margin-left: auto; display: flex; gap: 8px; flex-wrap: wrap; user-select: none; }
+
+  .statusbar { grid-area: status; display: flex; align-items: center; gap: 18px; padding: 0 14px;
+    background: var(--side); border-top: 1px solid var(--line); color: var(--muted); font-size: 12px;
+    user-select: none; white-space: nowrap; overflow: hidden; }
+  .statusbar span { display: inline-flex; align-items: center; gap: 6px; }
+  .statusbar .right { margin-left: auto; }
+
+  /* --- Cartes et contrôles ------------------------------------------------ */
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius);
+    padding: 16px 18px; margin-bottom: 16px; box-shadow: var(--shadow); }
+  .card-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 8px; }
+  .card-head h2 { font-size: 14px; margin: 0; font-weight: 600; }
+  .grid-2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(340px, 1fr)); gap: 0 16px; }
   .grow { flex: 1; min-width: 0; }
   .muted { color: var(--muted); font-size: 12px; }
 
-  /* Réglages */
-  .settings { display: flex; flex-wrap: wrap; gap: 10px 28px; align-items: center; }
-  .size { display: flex; align-items: center; gap: 8px; font-size: 14px; }
-  .size input {
-    width: 92px; background: var(--sunk); color: var(--ink); border: 1px solid var(--line);
-    border-radius: 8px; padding: 7px 10px; font: inherit; font-weight: 600; text-align: right;
+  button, .btn {
+    display: inline-flex; align-items: center; gap: 7px; background: var(--accent); color: #fff;
+    border: 1px solid transparent; border-radius: 8px; padding: 7px 13px; font: inherit; font-size: 13px;
+    font-weight: 500; cursor: pointer; white-space: nowrap; text-decoration: none; line-height: 1.3;
   }
-  .size input:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
-  .lang { display: inline-flex; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
-  .lang button { background: transparent; color: var(--muted); border-radius: 0; padding: 6px 14px; }
-  .lang button + button { border-left: 1px solid var(--line); }
-  .lang button[aria-pressed=true] { background: var(--accent-soft); color: var(--accent); }
-  .lang button:hover { filter: none; color: var(--ink); }
-  .check { display: flex; align-items: center; gap: 8px; font-size: 14px; cursor: pointer; }
-  .check input { accent-color: var(--accent); width: 16px; height: 16px; }
-
-  button {
-    background: var(--accent); color: #fff; border: 0; border-radius: 8px; padding: 7px 14px;
-    font: inherit; font-size: 13px; font-weight: 500; cursor: pointer; white-space: nowrap;
-  }
-  button:hover { filter: brightness(1.08); }
-  button:disabled { opacity: .5; cursor: default; filter: none; }
-  button.ghost { background: transparent; color: var(--muted); border: 1px solid var(--line); }
-  button.ghost:hover { color: var(--ink); border-color: var(--accent); }
-  button.icon { padding: 4px 9px; }
-  button.danger:hover { color: var(--err); border-color: var(--err); }
+  button svg.i, .btn svg.i { width: 16px; height: 16px; }
+  button:hover, .btn:hover { filter: brightness(1.07); }
+  button:active, .btn:active { transform: translateY(1px); }
+  button:disabled { opacity: .5; cursor: default; filter: none; transform: none; }
+  button:focus-visible, .btn:focus-visible, nav a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  button.ghost, .btn.ghost { background: var(--panel); color: var(--ink); border-color: var(--line); }
+  button.ghost:hover, .btn.ghost:hover { filter: none; border-color: var(--accent); color: var(--accent); }
+  button.icon { padding: 6px; color: var(--muted); background: transparent; border-color: transparent; }
+  button.icon:hover { background: var(--hover); color: var(--ink); filter: none; }
+  button.danger:hover { color: var(--err); border-color: color-mix(in srgb, var(--err) 50%, transparent); }
   button.destroy { background: var(--err); }
 
-  dialog.remove { border: 1px solid var(--line); border-radius: 12px; padding: 20px; max-width: min(460px, calc(100vw - 32px));
-    background: var(--panel); color: var(--ink); }
-  dialog.remove::backdrop { background: rgba(0, 0, 0, .5); }
-  dialog.remove h3 { margin: 0 0 8px; font-size: 16px; overflow-wrap: anywhere; }
-  dialog.remove p { margin: 0 0 16px; color: var(--muted); font-size: 13px; line-height: 1.5; }
-  dialog.remove .actions { display: flex; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
-  dialog.remove .alert { margin: 0 0 16px; padding: 10px 12px; border-radius: 8px; font-size: 13px; line-height: 1.5;
-    color: var(--err); background: color-mix(in srgb, var(--err) 12%, transparent);
-    border: 1px solid color-mix(in srgb, var(--err) 40%, transparent); }
+  .settings { display: flex; flex-wrap: wrap; gap: 12px 28px; align-items: center; }
+  .field { display: flex; align-items: center; gap: 10px; font-size: 13px; }
+  .field input[type=number] {
+    width: 96px; background: var(--sunk); color: var(--ink); border: 1px solid var(--line);
+    border-radius: 8px; padding: 6px 10px; font: inherit; font-weight: 600; text-align: right;
+  }
+  .field input:focus, .search input:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
+  .seg { display: inline-flex; background: var(--sunk); border: 1px solid var(--line); border-radius: 9px; padding: 2px; }
+  .seg button { background: transparent; color: var(--muted); border: 0; border-radius: 7px; padding: 5px 13px; }
+  .seg button[aria-pressed=true] { background: var(--panel); color: var(--ink); font-weight: 600; box-shadow: var(--shadow); }
+  .seg button:hover { filter: none; color: var(--ink); }
+  .check { display: flex; align-items: center; gap: 9px; font-size: 13px; cursor: pointer; }
+  .check input { accent-color: var(--accent); width: 16px; height: 16px; margin: 0; }
+  .hint { color: var(--muted); font-size: 12px; margin: 10px 0 0; }
+  .search { display: flex; align-items: center; gap: 6px; background: var(--panel); border: 1px solid var(--line);
+    border-radius: 8px; padding: 0 9px; color: var(--muted); }
+  .search input { border: 0; background: transparent; color: var(--ink); font: inherit; padding: 6px 0; width: 210px; outline: none; }
+
+  .banner { display: flex; align-items: flex-start; gap: 10px; margin: 0 0 16px; padding: 10px 12px; border-radius: 10px;
+    color: var(--err); background: color-mix(in srgb, var(--err) 10%, var(--panel));
+    border: 1px solid color-mix(in srgb, var(--err) 35%, transparent); font-size: 13px; }
+  .banner span { flex: 1; padding-top: 1px; }
+  .banner button.icon { padding: 2px; color: inherit; }
+
+  /* Statistiques */
+  .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 12px; margin-bottom: 16px; }
+  .stat { display: flex; align-items: center; gap: 12px; background: var(--panel); border: 1px solid var(--line);
+    border-radius: var(--radius); padding: 14px 16px; box-shadow: var(--shadow); }
+  .stat .ic { width: 38px; height: 38px; border-radius: 10px; display: grid; place-items: center; flex: none;
+    background: var(--accent-soft); color: var(--accent); }
+  .stat .ic.ok { background: color-mix(in srgb, var(--ok) 14%, transparent); color: var(--ok); }
+  .stat .ic.err { background: color-mix(in srgb, var(--err) 14%, transparent); color: var(--err); }
+  .stat b { display: block; font-size: 19px; line-height: 1.2; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .stat span { font-size: 12px; color: var(--muted); }
 
   /* Listes */
-  .row { display: flex; align-items: center; gap: 12px; padding: 11px 0; border-top: 1px solid var(--line); flex-wrap: wrap; }
-  .list > .row:first-child { border-top: 0; }
-  .name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 14px; font-weight: 500; }
+  .list .row { display: flex; align-items: center; gap: 12px; padding: 10px 8px; margin: 0 -8px; border-radius: 9px; flex-wrap: wrap; }
+  .list .row + .row { box-shadow: 0 -1px 0 var(--line); }
+  .list .row:hover { background: var(--hover); }
+  .list .row:hover + .row { box-shadow: none; }
+  .row > .grow { flex-basis: 240px; }
+  .ficon { width: 36px; height: 36px; border-radius: 9px; display: grid; place-items: center; flex: none;
+    background: var(--sunk); color: var(--muted); }
+  .ficon.video { background: var(--accent-soft); color: var(--accent); }
+  .name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 500; }
   .meta { color: var(--muted); font-size: 12px; margin-top: 1px; }
   .big { color: var(--warn); font-weight: 600; }
   .fit { color: var(--ok); font-weight: 600; }
-  .empty { color: var(--muted); font-size: 14px; padding: 14px 0 6px; text-align: center; }
-  .err { color: var(--err); font-size: 13px; margin-top: 10px; }
-  .err:empty { display: none; }
+  .empty { display: flex; flex-direction: column; align-items: center; gap: 8px; color: var(--muted);
+    font-size: 13px; padding: 26px 10px; text-align: center; }
+  .empty svg.i { width: 30px; height: 30px; stroke-width: 1.6; opacity: .6; }
+  .err { color: var(--err); font-size: 13px; }
 
-  details.upload { margin-top: 12px; border-top: 1px solid var(--line); padding-top: 10px; }
-  details.upload summary { cursor: pointer; font-size: 13px; color: var(--muted); }
   #drop {
-    margin-top: 10px; border: 1.5px dashed var(--line); border-radius: 10px; padding: 20px;
-    text-align: center; color: var(--muted); font-size: 13px; cursor: pointer;
+    display: flex; align-items: center; justify-content: center; gap: 12px; border: 1.5px dashed var(--line);
+    border-radius: 10px; padding: 22px; color: var(--muted); font-size: 13px; cursor: pointer; text-align: left;
   }
-  #drop:hover, #drop.over, #drop:focus-visible { border-color: var(--accent); background: var(--accent-soft); color: var(--ink); outline: none; }
+  #drop svg.i { width: 26px; height: 26px; color: var(--accent); }
+  #drop b { display: block; color: var(--ink); font-size: 14px; }
+  #drop:hover, #drop:focus-visible { border-color: var(--accent); background: var(--accent-soft); outline: none; }
   #drop.busy { pointer-events: none; opacity: .5; }
+  .drop-overlay { position: fixed; inset: 10px; z-index: 40; display: grid; place-items: center; border-radius: 16px;
+    border: 3px dashed var(--accent); background: color-mix(in srgb, var(--accent-soft) 88%, transparent);
+    color: var(--accent); font-size: 18px; font-weight: 600; }
+  .drop-overlay div { display: flex; flex-direction: column; align-items: center; gap: 10px; pointer-events: none; }
+  .drop-overlay svg.i { width: 46px; height: 46px; }
 
-  /* File de traitement */
-  .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 10px; margin-bottom: 14px; }
-  .stat { background: var(--sunk); border-radius: 10px; padding: 9px 12px; }
-  .stat b { display: block; font-size: 18px; font-variant-numeric: tabular-nums; }
-  .stat span { font-size: 12px; color: var(--muted); }
   .filters { display: flex; gap: 4px; flex-wrap: wrap; }
-  .filters button { background: transparent; color: var(--muted); border: 1px solid transparent; padding: 4px 10px; border-radius: 20px; }
-  .filters button[aria-pressed=true] { background: var(--accent-soft); color: var(--accent); }
+  .filters button { background: transparent; color: var(--muted); border: 1px solid transparent; padding: 5px 11px; border-radius: 20px; }
+  .filters button[aria-pressed=true] { background: var(--accent-soft); color: var(--accent); font-weight: 600; }
   .filters button:hover { filter: none; color: var(--ink); }
-  .bar { height: 5px; background: var(--line); border-radius: 3px; overflow: hidden; margin-top: 7px; }
-  .bar > i { display: block; height: 100%; background: var(--accent); transition: width .5s; }
+  .bar { height: 5px; background: var(--sunk); border-radius: 3px; overflow: hidden; margin-top: 7px; }
+  .bar > i { display: block; height: 100%; background: var(--accent); transition: width .5s; border-radius: 3px; }
   .badge { font-size: 11px; padding: 2px 9px; border-radius: 20px; font-weight: 600; white-space: nowrap; background: var(--sunk); color: var(--muted); }
   .badge.run { background: var(--accent-soft); color: var(--accent); }
   .badge.done { background: color-mix(in srgb, var(--ok) 15%, transparent); color: var(--ok); }
   .badge.failed { background: color-mix(in srgb, var(--err) 15%, transparent); color: var(--err); }
   .files { display: flex; gap: 5px; flex-wrap: wrap; align-items: center; }
-  .row > .grow { flex-basis: 260px; }   /* le nom passe avant les boutons : ceux-ci vont à la ligne */
   details.parts { font-size: 12px; color: var(--muted); }
   details.parts summary { cursor: pointer; padding: 3px 4px; }
   details.parts .files { margin-top: 6px; }
-  a.dl { font-size: 11px; font-weight: 600; color: var(--accent); text-decoration: none; border: 1px solid var(--line); border-radius: 6px; padding: 3px 8px; }
+  a.dl { display: inline-flex; align-items: center; gap: 5px; font-size: 12px; font-weight: 600; color: var(--accent);
+    text-decoration: none; border: 1px solid var(--line); border-radius: 7px; padding: 3px 9px; background: var(--panel); }
+  a.dl svg.i { width: 14px; height: 14px; }
   a.dl:hover { border-color: var(--accent); background: var(--accent-soft); }
   a.dl.zip { background: var(--accent); color: #fff; border-color: var(--accent); }
-  a.dl.zip:hover { filter: brightness(1.08); }
+  a.dl.zip:hover { filter: brightness(1.07); }
   details.error { margin-top: 5px; font-size: 12px; color: var(--err); }
   details.error summary { cursor: pointer; }
-  details.error pre { white-space: pre-wrap; word-break: break-word; background: var(--sunk); padding: 8px; border-radius: 6px; max-height: 160px; overflow: auto; margin: 6px 0 0; }
+  details.error pre { white-space: pre-wrap; word-break: break-word; background: var(--sunk); padding: 8px; border-radius: 6px;
+    max-height: 160px; overflow: auto; margin: 6px 0 0; }
   .more { text-align: center; padding-top: 10px; }
 
+  /* Réglages */
+  .pref { display: flex; align-items: center; gap: 16px; padding: 12px 0; flex-wrap: wrap; }
+  .pref + .pref { border-top: 1px solid var(--line); }
+  .pref .grow b { display: block; font-weight: 600; }
+  .keys { width: 100%; border-collapse: collapse; font-size: 13px; }
+  .keys td { padding: 6px 0; border-top: 1px solid var(--line); }
+  .keys td:first-child { width: 220px; }
+  kbd { font: 11px ui-monospace, Consolas, monospace; background: var(--sunk); border: 1px solid var(--line);
+    border-bottom-width: 2px; border-radius: 5px; padding: 1px 6px; }
+
+  /* Fenêtres et notifications */
+  dialog.remove { border: 1px solid var(--line); border-radius: 14px; padding: 22px; max-width: min(470px, calc(100vw - 32px));
+    background: var(--panel); color: var(--ink); box-shadow: 0 20px 60px rgba(0, 0, 0, .3); }
+  dialog.remove::backdrop { background: rgba(10, 12, 20, .45); backdrop-filter: blur(2px); }
+  dialog.remove h3 { margin: 0 0 8px; font-size: 16px; overflow-wrap: anywhere; }
+  dialog.remove p { margin: 0 0 16px; color: var(--muted); font-size: 13px; line-height: 1.5; overflow-wrap: anywhere; }
+  dialog.remove .actions { display: flex; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
+  dialog.remove input[type=password] { width: 100%; margin: 0 0 16px; padding: 8px 10px;
+    font: inherit; border: 1px solid var(--line); border-radius: 8px; background: var(--sunk); color: var(--ink); }
+  dialog.remove .alert { margin: 0 0 16px; padding: 10px 12px; border-radius: 8px; font-size: 13px; line-height: 1.5;
+    color: var(--err); background: color-mix(in srgb, var(--err) 12%, transparent);
+    border: 1px solid color-mix(in srgb, var(--err) 40%, transparent); }
   .toast {
-    position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%); background: var(--ink); color: var(--bg);
-    font-size: 13px; padding: 8px 14px; border-radius: 8px; opacity: 0; transition: opacity .2s; pointer-events: none;
+    position: fixed; right: 18px; bottom: 40px; z-index: 50; display: flex; align-items: center; gap: 9px; max-width: 420px;
+    background: var(--ink); color: var(--bg); font-size: 13px; padding: 10px 14px; border-radius: 10px;
+    box-shadow: 0 10px 30px rgba(0, 0, 0, .25); opacity: 0; transform: translateY(8px);
+    transition: opacity .2s, transform .2s; pointer-events: none;
   }
-  .toast.show { opacity: 1; }
+  .toast.show { opacity: 1; transform: none; }
+
+  @media (max-width: 760px) {
+    .app { grid-template-columns: 60px 1fr; }
+    .brand div, nav a span, nav em, .side-link span { display: none; }
+    .brand { padding: 4px 3px 18px; }
+    .view { padding: 20px 16px 32px; }
+  }
 </style>
 </head>
 <body>
-<main>
-  <header>
-    <div>
-      <h1>Transcription et compression pour le RAG</h1>
-      <p class="sub">Chaque vidéo est transcrite dans la langue choisie, puis compressée sous la taille maximale.</p>
-    </div>
-    <span class="status"><span class="dot" id="health"></span><span id="healthText">connexion…</span></span>
-  </header>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <symbol id="i-home" viewBox="0 0 24 24"><path d="M3 10.5 12 3l9 7.5V20a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1z"/></symbol>
+  <symbol id="i-folder" viewBox="0 0 24 24"><path d="M3 6.5A1.5 1.5 0 0 1 4.5 5H9l2 2h8.5A1.5 1.5 0 0 1 21 8.5v9a1.5 1.5 0 0 1-1.5 1.5h-15A1.5 1.5 0 0 1 3 17.5z"/></symbol>
+  <symbol id="i-film" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M7 4v16M17 4v16M3 9h4M3 15h4M17 9h4M17 15h4"/></symbol>
+  <symbol id="i-audio" viewBox="0 0 24 24"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></symbol>
+  <symbol id="i-activity" viewBox="0 0 24 24"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></symbol>
+  <symbol id="i-box" viewBox="0 0 24 24"><path d="M21 8 12 3 3 8v8l9 5 9-5z"/><path d="m3 8 9 5 9-5M12 13v8"/></symbol>
+  <symbol id="i-sliders" viewBox="0 0 24 24"><path d="M4 21v-7M4 10V3M12 21v-9M12 8V3M20 21v-5M20 12V3M1 14h6M9 8h6M17 16h6"/></symbol>
+  <symbol id="i-refresh" viewBox="0 0 24 24"><path d="M21 12a9 9 0 1 1-2.64-6.36"/><path d="M21 3v6h-6"/></symbol>
+  <symbol id="i-upload" viewBox="0 0 24 24"><path d="M12 16V4M7 9l5-5 5 5"/><path d="M4 16v3a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3"/></symbol>
+  <symbol id="i-download" viewBox="0 0 24 24"><path d="M12 4v12M7 11l5 5 5-5"/><path d="M4 16v3a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3"/></symbol>
+  <symbol id="i-trash" viewBox="0 0 24 24"><path d="M4 7h16M10 11v6M14 11v6M6 7l1 13a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1l1-13M9 7V4h6v3"/></symbol>
+  <symbol id="i-x" viewBox="0 0 24 24"><path d="M18 6 6 18M6 6l12 12"/></symbol>
+  <symbol id="i-play" viewBox="0 0 24 24"><path d="M7 4v16l13-8z"/></symbol>
+  <symbol id="i-check" viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5"/></symbol>
+  <symbol id="i-alert" viewBox="0 0 24 24"><path d="M12 9v4M12 17h.01"/><path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/></symbol>
+  <symbol id="i-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></symbol>
+  <symbol id="i-disk" viewBox="0 0 24 24"><ellipse cx="12" cy="5" rx="8" ry="3"/><path d="M4 5v14c0 1.7 3.6 3 8 3s8-1.3 8-3V5M4 12c0 1.7 3.6 3 8 3s8-1.3 8-3"/></symbol>
+  <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></symbol>
+</svg>
 
-  <!-- Réglages -->
-  <section>
-    <div class="settings">
-      <div class="size">Langue de la vidéo
-        <div class="lang" id="lang" role="group" aria-label="Langue de la vidéo">
-          <button type="button" data-lang="fr" aria-pressed="true">Français</button>
-          <button type="button" data-lang="en" aria-pressed="false">Anglais</button>
+<div class="app">
+  <aside class="sidebar">
+    <div class="brand">
+      <img src="/static/icon-180.png" alt="">
+      <div><b>Transcription Vidéo</b><span>Compression et RAG</span></div>
+    </div>
+    <nav aria-label="Navigation principale">
+      <a href="#/accueil" data-view="accueil" title="Tableau de bord (Alt+1)"><svg class="i"><use href="#i-home"/></svg><span>Tableau de bord</span></a>
+      <a href="#/fichiers" data-view="fichiers" title="Fichiers à traiter (Alt+2)"><svg class="i"><use href="#i-folder"/></svg><span>Fichiers à traiter</span><em id="navMedia"></em></a>
+      <a href="#/traitements" data-view="traitements" title="Traitements (Alt+3)"><svg class="i"><use href="#i-activity"/></svg><span>Traitements</span><em id="navJobs"></em></a>
+      <a href="#/resultats" data-view="resultats" title="Fichiers produits (Alt+4)"><svg class="i"><use href="#i-box"/></svg><span>Fichiers produits</span><em id="navOutputs"></em></a>
+    </nav>
+    <div class="side-foot">
+      <a class="side-link" href="#/reglages" data-view="reglages" title="Réglages (Alt+5)"><svg class="i"><use href="#i-sliders"/></svg><span>Réglages</span></a>
+    </div>
+  </aside>
+
+  <main class="content" id="content">
+    <div class="view" style="padding-bottom:0" id="errorWrap" hidden>
+      <div class="banner" role="alert"><svg class="i"><use href="#i-alert"/></svg><span id="error"></span>
+        <button type="button" class="icon" id="errorClose" title="Masquer"><svg class="i"><use href="#i-x"/></svg></button></div>
+    </div>
+
+    <!-- Tableau de bord -->
+    <section class="view" id="view-accueil" hidden>
+      <div class="page-head">
+        <div><h1>Tableau de bord</h1><p class="sub">Vue d'ensemble des transcriptions et compressions.</p></div>
+        <div class="actions">
+          <button type="button" class="ghost" id="dashUpload"><svg class="i"><use href="#i-upload"/></svg>Envoyer un fichier</button>
+          <a class="btn" href="#/fichiers"><svg class="i"><use href="#i-play"/></svg>Traiter des fichiers</a>
         </div>
       </div>
-      <label class="size">Taille maximale par fichier
-        <input type="number" id="maxMb" min="10" step="10" value="300"> Mo</label>
-      <label class="check"><input type="checkbox" id="split" checked>
-        Découper en parties si la vidéo est trop longue</label>
-    </div>
-    <p class="muted" id="splitHint" style="margin:8px 0 0"></p>
-  </section>
-
-  <!-- Sources -->
-  <section>
-    <div class="head">
-      <h2>Fichiers à compresser</h2>
-      <span class="muted grow">dans <code id="mediaPath">…</code></span>
-      <button type="button" class="ghost" id="reload">Relire</button>
-      <button type="button" id="all" hidden></button>
-    </div>
-    <div id="media" class="list"><p class="empty">Lecture du disque…</p></div>
-
-    <details class="upload">
-      <summary>Ou envoyer un fichier depuis ce PC (fichiers de quelques Go)</summary>
-      <div id="drop" tabindex="0" role="button">Glisse un fichier ici ou clique pour parcourir</div>
-      <input type="file" id="file" hidden accept="video/*,audio/*">
-      <div id="upload" hidden style="margin-top:10px">
-        <div class="row" style="border:0;padding:0">
-          <div class="grow"><div class="name" id="upName"></div><div class="meta" id="upMeta"></div></div>
-          <button type="button" class="ghost danger" id="upCancel">Annuler</button>
+      <div class="stats" id="stats"></div>
+      <div class="grid-2">
+        <div class="card">
+          <div class="card-head"><h2 class="grow">En cours</h2><a class="muted" href="#/traitements">Tout voir</a></div>
+          <div class="list" id="dashActive"></div>
         </div>
-        <div class="bar"><i id="upBar" style="width:0"></i></div>
+        <div class="card">
+          <div class="card-head"><h2 class="grow">Terminés récemment</h2><a class="muted" href="#/resultats">Fichiers produits</a></div>
+          <div class="list" id="dashRecent"></div>
+        </div>
       </div>
-    </details>
-    <div id="error" class="err"></div>
-  </section>
+    </section>
 
-  <!-- File de traitement -->
-  <section>
-    <div class="head">
-      <h2>Traitements</h2>
-      <span class="muted grow">résultats dans <code id="outputPath">…</code></span>
-    </div>
-    <div class="stats" id="stats"></div>
-    <div class="head">
-      <div class="filters grow" id="filters">
-        <button type="button" data-f="all" aria-pressed="true">Tous</button>
-        <button type="button" data-f="active" aria-pressed="false">En cours</button>
-        <button type="button" data-f="done" aria-pressed="false">Terminés</button>
-        <button type="button" data-f="failed" aria-pressed="false">Échecs</button>
+    <!-- Fichiers à traiter -->
+    <section class="view" id="view-fichiers" hidden>
+      <div class="page-head">
+        <div><h1>Fichiers à traiter</h1><p class="sub">Vidéos et audios du dossier <code id="mediaPath">…</code></p></div>
+        <div class="actions">
+          <button type="button" class="ghost" id="reload"><svg class="i"><use href="#i-refresh"/></svg>Relire le dossier</button>
+          <button type="button" id="all" hidden></button>
+        </div>
       </div>
-      <button type="button" class="ghost" id="clearDone" hidden>Retirer les terminés</button>
-      <button type="button" class="ghost" id="clearFailed" hidden>Retirer les échecs</button>
-    </div>
-    <div id="jobs" class="list"><p class="empty">Chargement…</p></div>
-  </section>
 
-  <!-- Fichiers produits, qu'un traitement existe encore ou non -->
-  <section>
-    <div class="head">
-      <h2>Fichiers produits</h2>
-      <span class="muted grow" id="outputsSummary"></span>
-      <button type="button" class="ghost danger" id="clearOutputs" hidden>Tout supprimer</button>
-    </div>
-    <div id="outputs" class="list"><p class="empty">Chargement…</p></div>
-  </section>
-</main>
+      <div class="card">
+        <div class="card-head"><h2>Options de traitement</h2></div>
+        <div class="settings">
+          <div class="field">Langue de la vidéo
+            <div class="seg" id="lang" role="group" aria-label="Langue de la vidéo">
+              <button type="button" data-lang="fr" aria-pressed="true">Français</button>
+              <button type="button" data-lang="en" aria-pressed="false">Anglais</button>
+            </div>
+          </div>
+          <label class="field">Taille maximale par fichier
+            <input type="number" id="maxMb" min="10" step="10" value="300"> Mo</label>
+          <label class="check"><input type="checkbox" id="split" checked>
+            Découper en parties si la vidéo est trop longue</label>
+        </div>
+        <p class="hint" id="splitHint"></p>
+      </div>
+
+      <div class="card">
+        <div class="card-head"><h2 class="grow">Dans le dossier</h2><span class="muted" id="mediaSummary"></span></div>
+        <div id="media" class="list"></div>
+      </div>
+
+      <div class="card">
+        <div class="card-head"><h2 class="grow">Envoyer depuis ce PC</h2><span class="muted">pour un fichier de quelques Go ; au-delà, le copier dans le dossier</span></div>
+        <div id="drop" tabindex="0" role="button">
+          <svg class="i"><use href="#i-upload"/></svg>
+          <div><b>Glisser un fichier ici, ou cliquer pour parcourir</b>Le fichier peut aussi être déposé n'importe où dans la fenêtre.</div>
+        </div>
+        <input type="file" id="file" hidden accept="video/*,audio/*">
+        <div id="upload" hidden style="margin-top:12px">
+          <div class="list"><div class="row">
+            <div class="ficon video"><svg class="i"><use href="#i-upload"/></svg></div>
+            <div class="grow"><div class="name" id="upName"></div><div class="meta" id="upMeta"></div>
+              <div class="bar"><i id="upBar" style="width:0"></i></div></div>
+            <button type="button" class="ghost danger" id="upCancel">Annuler</button>
+          </div></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Traitements -->
+    <section class="view" id="view-traitements" hidden>
+      <div class="page-head">
+        <div><h1>Traitements</h1><p class="sub">Résultats enregistrés dans <code id="outputPath">…</code></p></div>
+        <div class="actions">
+          <button type="button" class="ghost" id="clearDone" hidden>Retirer les terminés</button>
+          <button type="button" class="ghost danger" id="clearFailed" hidden>Retirer les échecs</button>
+        </div>
+      </div>
+      <div class="card">
+        <div class="card-head">
+          <div class="filters grow" id="filters">
+            <button type="button" data-f="all" aria-pressed="true">Tous</button>
+            <button type="button" data-f="active" aria-pressed="false">En cours</button>
+            <button type="button" data-f="done" aria-pressed="false">Terminés</button>
+            <button type="button" data-f="failed" aria-pressed="false">Échecs</button>
+          </div>
+          <label class="search"><svg class="i"><use href="#i-search"/></svg>
+            <input type="search" id="jobSearch" placeholder="Rechercher une vidéo" aria-label="Rechercher une vidéo"></label>
+        </div>
+        <div id="jobs" class="list"></div>
+      </div>
+    </section>
+
+    <!-- Fichiers produits -->
+    <section class="view" id="view-resultats" hidden>
+      <div class="page-head">
+        <div><h1>Fichiers produits</h1><p class="sub" id="outputsSummary">Compressions et sous-titres, groupés par vidéo.</p></div>
+        <div class="actions">
+          <button type="button" class="ghost danger" id="clearOutputs" hidden><svg class="i"><use href="#i-trash"/></svg>Tout supprimer</button>
+        </div>
+      </div>
+      <div class="card"><div id="outputs" class="list"></div></div>
+    </section>
+
+    <!-- Réglages -->
+    <section class="view" id="view-reglages" hidden>
+      <div class="page-head">
+        <div><h1>Réglages</h1><p class="sub">Préférences de cette fenêtre, enregistrées sur ce PC.</p></div>
+      </div>
+      <div class="card">
+        <div class="card-head"><h2>Apparence et notifications</h2></div>
+        <div class="pref">
+          <div class="grow"><b>Thème</b><span class="muted">Suit Windows par défaut.</span></div>
+          <div class="seg" id="theme" role="group" aria-label="Thème">
+            <button type="button" data-theme="system" aria-pressed="true">Système</button>
+            <button type="button" data-theme="light" aria-pressed="false">Clair</button>
+            <button type="button" data-theme="dark" aria-pressed="false">Sombre</button>
+          </div>
+        </div>
+        <div class="pref">
+          <div class="grow"><b>Prévenir à la fin d'un traitement</b><span class="muted" id="notifyHint">Notification Windows quand une vidéo est terminée ou en échec.</span></div>
+          <label class="check"><input type="checkbox" id="notify"> Activer</label>
+        </div>
+      </div>
+      <div class="card">
+        <div class="card-head"><h2>Dossiers</h2></div>
+        <div class="pref"><div class="grow"><b>Vidéos à traiter</b><code id="setMediaPath">…</code></div></div>
+        <div class="pref"><div class="grow"><b>Fichiers produits</b><code id="setOutputPath">…</code></div></div>
+        <p class="hint">Pour changer de dossier : <code>MEDIA_PATH</code> et <code>OUTPUT_PATH</code> dans le fichier <code>.env</code>, puis relancer le logiciel.</p>
+      </div>
+      <div class="card">
+        <div class="card-head"><h2>Raccourcis clavier</h2></div>
+        <table class="keys">
+          <tr><td><kbd>Alt</kbd> + <kbd>1</kbd> … <kbd>5</kbd></td><td>Changer de page</td></tr>
+          <tr><td><kbd>Ctrl</kbd> + <kbd>O</kbd></td><td>Envoyer un fichier depuis ce PC</td></tr>
+          <tr><td><kbd>Ctrl</kbd> + <kbd>F</kbd></td><td>Rechercher dans les traitements</td></tr>
+          <tr><td><kbd>F5</kbd></td><td>Actualiser</td></tr>
+        </table>
+      </div>
+      <div class="card">
+        <div class="card-head"><h2>À propos</h2></div>
+        <div class="pref">
+          <img src="/static/icon-180.png" alt="" width="44" height="44" style="border-radius:11px">
+          <div class="grow"><b>Transcription Vidéo</b><span class="muted">Version <span id="version">…</span> · FFmpeg, faster-whisper, Qdrant</span></div>
+          <a class="btn ghost" href="/docs" target="_blank" rel="noopener">Documentation de l'API</a>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer class="statusbar">
+    <span id="sbConn">Connexion…</span>
+    <span id="sbActive"></span>
+    <span id="sbUpload" hidden></span>
+    <span class="right" id="sbTime"></span>
+  </footer>
+</div>
+
+<div class="drop-overlay" id="dropOverlay" hidden>
+  <div><svg class="i"><use href="#i-upload"/></svg>Déposer pour envoyer et traiter</div>
+</div>
 <div class="toast" id="toast"></div>
+
 <dialog class="remove" id="removeDialog">
   <form method="dialog">
     <h3 id="removeTitle"></h3>
@@ -230,19 +463,38 @@
   </form>
 </dialog>
 
+<dialog class="remove" id="loginDialog">
+  <form id="loginForm">
+    <h3>Connexion</h3>
+    <p>Le plus simple : ouvrir le logiciel avec l'icône <b>Transcription Vidéo</b> du Bureau,
+      qui connecte automatiquement.</p>
+    <p>Sinon, colle le jeton d'accès : la ligne <code>API_TOKEN=…</code> du fichier <code>.env</code>
+      (64 caractères, sans <code>API_TOKEN=</code>). Pour l'afficher :
+      <code>grep API_TOKEN .env</code>.</p>
+    <input type="password" id="loginToken" autocomplete="current-password" required aria-label="Jeton d'accès"
+      placeholder="Coller le jeton ici">
+    <div class="alert" id="loginError" hidden></div>
+    <div class="actions"><button type="submit">Se connecter</button></div>
+  </form>
+</dialog>
+
 <script>
 const CHUNK = 64 * 1024 * 1024;
 const MO = 1e6;                                  // Mo décimal, comme le serveur
 const PAGE = 100;
+const APP = 'Transcription Vidéo';
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) =>
   ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
+const ico = (name) => `<svg class="i" aria-hidden="true"><use href="#i-${name}"/></svg>`;
+const plural = (n, word, suffix = 's') => `${n} ${word}${n > 1 ? suffix : ''}`;
 
 const ACTIVE = ['queued', 'running', 'extracting', 'transcribing', 'ocr', 'compressing', 'uploading'];
 const STATUS = {
   uploading: 'envoi', queued: 'en file', running: 'démarrage', compressing: 'compression',
   extracting: 'analyse', transcribing: 'transcription', ocr: 'images', done: 'terminé', failed: 'échec',
 };
+const AUDIO = /\.(mp3|wav|m4a|flac|ogg|opus|aac|wma|aiff?|amr|mka|weba)$/i;
 
 function bytes(n) {
   if (n == null) return '—';
@@ -258,18 +510,68 @@ function duration(s) {
   if (s < 172800) return (s / 3600).toFixed(1) + ' h';
   return (s / 86400).toFixed(1) + ' j';
 }
+const emptyState = (icon, text) => `<div class="empty">${ico(icon)}<div>${text}</div></div>`;
 
 let toastTimer;
-function toast(message) {
-  $('toast').textContent = message;
+function toast(message, icon = 'check') {
+  $('toast').innerHTML = ico(icon) + '<span></span>';
+  $('toast').lastChild.textContent = message;
   $('toast').classList.add('show');
   clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => $('toast').classList.remove('show'), 2400);
+  toastTimer = setTimeout(() => $('toast').classList.remove('show'), 3200);
 }
-const fail = (m) => { $('error').textContent = m || ''; };
+// Erreur affichée en haut de la page courante, jusqu'à ce qu'on la masque.
+function fail(message) {
+  $('error').textContent = message || '';
+  $('errorWrap').hidden = !message;
+}
+$('errorClose').onclick = () => fail('');
+
+// --- Navigation --------------------------------------------------------------
+const VIEWS = ['accueil', 'fichiers', 'traitements', 'resultats', 'reglages'];
+let view = 'accueil';
+function route() {
+  const match = location.hash.match(/^#\/(\w+)/);
+  view = match && VIEWS.includes(match[1]) ? match[1] : 'accueil';
+  VIEWS.forEach((v) => { $('view-' + v).hidden = v !== view; });
+  document.querySelectorAll('[data-view]').forEach((a) => {
+    if (a.dataset.view === view) a.setAttribute('aria-current', 'page'); else a.removeAttribute('aria-current');
+  });
+  $('content').scrollTop = 0;
+}
+window.addEventListener('hashchange', route);
+const go = (v) => { location.hash = '#/' + v; };
+
+document.addEventListener('keydown', (e) => {
+  if (e.altKey && !e.ctrlKey && e.key >= '1' && e.key <= String(VIEWS.length)) {
+    e.preventDefault(); go(VIEWS[Number(e.key) - 1]);
+  } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'o') {
+    e.preventDefault(); $('file').click();
+  } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'f') {
+    e.preventDefault(); go('traitements'); $('jobSearch').focus();
+  }
+});
+
+// --- Connexion (mode jeton uniquement) ---------------------------------------
+// Toute réponse 401 ouvre la fenêtre du jeton, une seule fois.
+function askLogin() {
+  const d = $('loginDialog');
+  if (!d.open) { d.showModal(); $('loginToken').focus(); }
+}
+const login = (token) => fetch('/login', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify({ token: token.trim().replace(/^API_TOKEN=/, '') }) });
+$('loginForm').onsubmit = async (event) => {
+  event.preventDefault();
+  const r = await login($('loginToken').value);
+  if (r.ok) { location.reload(); return; }
+  $('loginError').textContent = r.status === 401 ? 'Jeton invalide.' : `Erreur ${r.status}`;
+  $('loginError').hidden = false;
+};
+$('loginDialog').addEventListener('cancel', (event) => event.preventDefault());
 
 async function json(url, init) {
   const response = await fetch(url, init);
+  if (response.status === 401) askLogin();
   const body = await response.json().catch(() => ({}));
   if (!response.ok) {
     throw Object.assign(new Error(body.detail || `${response.status} ${response.statusText}`), { status: response.status });
@@ -280,7 +582,38 @@ const post = (url, body) => json(url, {
   method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
 });
 
-// --- Réglages (mémorisés dans le navigateur) ---------------------------------
+// --- Préférences de la fenêtre -----------------------------------------------
+let prefs = { theme: 'system', notify: false };
+try { prefs = { ...prefs, ...JSON.parse(localStorage.getItem('interface') || '{}') }; } catch {}
+const savePrefs = () => { try { localStorage.setItem('interface', JSON.stringify(prefs)); } catch {} };
+
+function applyTheme() {
+  if (prefs.theme === 'system') document.documentElement.removeAttribute('data-theme');
+  else document.documentElement.dataset.theme = prefs.theme;
+  $('theme').querySelectorAll('button').forEach((b) => b.setAttribute('aria-pressed', b.dataset.theme === prefs.theme));
+}
+$('theme').querySelectorAll('button').forEach((b) => b.onclick = () => { prefs.theme = b.dataset.theme; savePrefs(); applyTheme(); });
+applyTheme();
+
+function showNotifyState() {
+  const supported = 'Notification' in window;
+  $('notify').checked = prefs.notify && supported && Notification.permission === 'granted';
+  $('notify').disabled = !supported;
+  if (!supported) $('notifyHint').textContent = 'Non disponible dans ce navigateur.';
+  else if (Notification.permission === 'denied') $('notifyHint').textContent = 'Bloquées par le navigateur : les autoriser dans les paramètres du site.';
+}
+$('notify').onchange = async () => {
+  prefs.notify = $('notify').checked;
+  if (prefs.notify && Notification.permission !== 'granted') {
+    prefs.notify = (await Notification.requestPermission()) === 'granted';
+  }
+  savePrefs();
+  showNotifyState();
+  if (prefs.notify) toast('Tu seras prévenu à la fin de chaque traitement');
+};
+showNotifyState();
+
+// --- Options de traitement (mémorisées dans le navigateur) ------------------
 const maxMb = () => Number($('maxMb').value) || 0;
 let language = 'fr';
 function setLanguage(value) {
@@ -296,8 +629,8 @@ try {
 function onSettings() {
   try { localStorage.setItem('compression', JSON.stringify({ maxMb: maxMb(), split: $('split').checked, language })); } catch {}
   $('splitHint').textContent = $('split').checked
-    ? `Une vidéo longue devient plusieurs fichiers de ${maxMb()} Mo maximum, en gardant une image lisible.`
-    : `Tout tient en un seul fichier de ${maxMb()} Mo : une vidéo très longue sera fortement dégradée, ou refusée.`;
+    ? `Chaque vidéo est transcrite puis compressée. Une vidéo longue devient plusieurs fichiers de ${maxMb()} Mo maximum, en gardant une image lisible.`
+    : `Chaque vidéo est transcrite puis compressée en un seul fichier de ${maxMb()} Mo : une vidéo très longue sera fortement dégradée, ou refusée.`;
   renderMedia();
 }
 $('maxMb').oninput = onSettings;
@@ -312,10 +645,10 @@ function payload() {
   } };
 }
 
-// --- Sources sur le disque ---------------------------------------------------
+// --- Fichiers à traiter ------------------------------------------------------
 let entries = null;
 async function loadMedia() {
-  $('media').innerHTML = '<p class="empty">Lecture du disque…</p>';
+  $('media').innerHTML = emptyState('refresh', 'Lecture du dossier…');
   try { entries = await json('/media'); }
   catch (error) { entries = null; $('media').innerHTML = `<p class="err">${esc(error.message)}</p>`; return; }
   renderMedia();
@@ -328,13 +661,16 @@ function renderMedia() {
   const count = entries.reduce((n, e) => n + e.count, 0);
   const total = entries.reduce((n, e) => n + e.size, 0);
 
+  $('navMedia').textContent = count || '';
+  $('mediaSummary').textContent = count ? `${plural(count, 'fichier')} · ${bytes(total)}` : '';
   $('all').hidden = entries.length < 2;
-  $('all').textContent = `Tout compresser (${count} fichiers · ${bytes(total)})`;
+  $('all').innerHTML = `${ico('play')}<span></span>`;
+  $('all').lastChild.textContent = `Tout traiter (${count})`;
 
   if (!entries.length) {
-    $('media').innerHTML = `<p class="empty">Aucun fichier audio ou vidéo ici.<br>
-      Copie tes fichiers dans ce dossier, ou change <code>MEDIA_PATH</code> dans <code>.env</code>
-      (ex. <code>MEDIA_PATH=/mnt/e/videos</code>) puis relance les conteneurs.</p>`;
+    $('media').innerHTML = emptyState('folder', `Aucun fichier audio ou vidéo dans ce dossier.<br>
+      Copie tes fichiers dans <code>media/</code>, ou change <code>MEDIA_PATH</code> dans <code>.env</code>
+      (ex. <code>MEDIA_PATH=/mnt/e/videos</code>) puis relance le logiciel.`);
     return;
   }
   $('media').innerHTML = entries.map((e, i) => {
@@ -342,17 +678,18 @@ function renderMedia() {
     const over = e.largest > limit;
     const size = `<span class="${over ? 'big' : 'fit'}">${bytes(e.size)}</span>`;
     const detail = folder
-      ? `${e.count} fichier${e.count > 1 ? 's' : ''} · ${size} au total`
+      ? `${plural(e.count, 'fichier')} · ${size} au total`
       : `${size}${over ? '' : ' · déjà sous la limite, sera copié tel quel'}`;
+    const icon = folder ? 'folder' : AUDIO.test(e.name) ? 'audio' : 'film';
     return `
       <div class="row">
+        <div class="ficon ${folder ? '' : 'video'}">${ico(icon)}</div>
         <div class="grow">
-          <div class="name" title="${esc(e.path)}">${folder ? '📁 ' : ''}${esc(e.name)}</div>
+          <div class="name" title="${esc(e.path)}">${esc(e.name)}</div>
           <div class="meta">${detail}</div>
         </div>
-        <button type="button" class="${over ? '' : 'ghost'}" data-i="${i}">
-          ${folder ? `Compresser les ${e.count}` : 'Compresser'}</button>
-        <button type="button" class="ghost icon danger" data-rm="${i}" title="Supprimer du disque, avec ses compressions">🗑</button>
+        <button type="button" class="${over ? '' : 'ghost'}" data-i="${i}">${ico('play')}${folder ? `Traiter les ${e.count}` : 'Traiter'}</button>
+        <button type="button" class="icon danger" data-rm="${i}" title="Supprimer du disque, avec ses compressions">${ico('trash')}</button>
       </div>`;
   }).join('');
   $('media').querySelectorAll('button[data-i]').forEach((b) => b.onclick = () => start([entries[b.dataset.i]], b));
@@ -365,7 +702,15 @@ async function start(list, button) {
   let body;
   try { body = payload(); } catch (error) { fail(error.message); return; }
   const count = list.reduce((n, e) => n + e.count, 0);
-  if (count > 1 && !confirm(`Compresser ${count} fichiers sous ${maxMb()} Mo chacun ?`)) return;
+  if (count > 1) {
+    const choice = await ask({
+      title: `Traiter ${count} fichiers ?`,
+      text: `Chaque vidéo sera transcrite en ${language === 'en' ? 'anglais' : 'français'}, puis compressée `
+        + `en fichiers de ${maxMb()} Mo maximum. Les traitements s'enchaînent en arrière-plan.`,
+      buttons: [['go', `Traiter les ${count} fichiers`, '']],
+    });
+    if (choice !== 'go') return;
+  }
   button.disabled = true;
   let queued = 0, skipped = 0;
   try {
@@ -379,7 +724,7 @@ async function start(list, button) {
         skipped += 1;                   // déjà en cours : pas de doublon dans le même dossier
       }
     }
-    toast(`${queued} fichier${queued > 1 ? 's' : ''} ajouté${queued > 1 ? 's' : ''} à la file`
+    toast(`${plural(queued, 'fichier')} ajouté${queued > 1 ? 's' : ''} à la file`
       + (skipped ? ` · ${skipped} déjà en cours, ignoré${skipped > 1 ? 's' : ''}` : ''));
   } catch (error) {
     fail('Impossible de lancer : ' + error.message);
@@ -396,6 +741,7 @@ async function upload(file) {
   fail('');
   let body;
   try { body = payload(); } catch (error) { fail(error.message); return; }
+  go('fichiers');
 
   const controller = new AbortController();
   uploading = { controller, job: null };
@@ -406,6 +752,8 @@ async function upload(file) {
   $('upName').textContent = file.name;
   $('upMeta').textContent = 'Préparation…';
   $('upBar').style.width = '0';
+  $('sbUpload').hidden = false;
+  $('sbUpload').textContent = `Envoi de ${file.name}…`;
 
   try {
     const job = await post('/jobs', { filename: file.name, size: file.size, ...body });
@@ -415,7 +763,11 @@ async function upload(file) {
       for (let attempt = 0; ; attempt++) {
         try {
           const r = await fetch(`/jobs/${job.id}/parts/${i}`, { method: 'PUT', body: slice, signal: controller.signal });
-          if (!r.ok) throw new Error(`morceau ${i + 1} refusé (${r.status})`);
+          if (r.status === 401) askLogin();
+          if (!r.ok) {
+            const detail = (await r.json().catch(() => ({}))).detail;
+            throw new Error(`morceau ${i + 1} refusé (${detail || r.status})`);
+          }
           break;
         } catch (error) {
           if (controller.signal.aborted || attempt === 2) throw error;
@@ -424,20 +776,23 @@ async function upload(file) {
       }
       const sent = Math.min((i + 1) * CHUNK, file.size);
       const speed = sent / ((performance.now() - began) / 1000);
-      $('upBar').style.width = (sent / file.size * 100) + '%';
+      const percent = Math.round(sent / file.size * 100);
+      $('upBar').style.width = percent + '%';
       $('upMeta').textContent = `${bytes(sent)} / ${bytes(file.size)} · ${bytes(speed)}/s · reste ${duration((file.size - sent) / speed)}`;
+      $('sbUpload').textContent = `Envoi ${percent} %`;
     }
     $('upMeta').textContent = 'Assemblage sur le serveur…';
     await json(`/jobs/${job.id}/complete`, { method: 'POST', signal: controller.signal });
-    toast('Fichier envoyé, compression en file');
+    toast('Fichier envoyé, traitement en file');
   } catch (error) {
     if (controller.signal.aborted) {
       if (uploading.job) await fetch('/jobs/' + uploading.job, { method: 'DELETE' });
-      toast('Envoi annulé');
+      toast('Envoi annulé', 'x');
     } else fail("Échec de l'envoi : " + error.message);
   } finally {
     uploading = null;
     $('upload').hidden = true;
+    $('sbUpload').hidden = true;
     $('drop').classList.remove('busy');
     $('file').value = '';
     refresh();
@@ -446,17 +801,33 @@ async function upload(file) {
 $('upCancel').onclick = () => uploading && uploading.controller.abort();
 window.addEventListener('beforeunload', (e) => { if (uploading) e.preventDefault(); });
 
-const drop = $('drop');
-drop.onclick = () => $('file').click();
-drop.onkeydown = (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); $('file').click(); } };
+$('drop').onclick = () => $('file').click();
+$('drop').onkeydown = (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); $('file').click(); } };
+$('dashUpload').onclick = () => $('file').click();
 $('file').onchange = (e) => e.target.files[0] && upload(e.target.files[0]);
-['dragenter', 'dragover'].forEach((t) => drop.addEventListener(t, (e) => { e.preventDefault(); drop.classList.add('over'); }));
-['dragleave', 'drop'].forEach((t) => drop.addEventListener(t, (e) => { e.preventDefault(); drop.classList.remove('over'); }));
-drop.addEventListener('drop', (e) => e.dataTransfer.files[0] && upload(e.dataTransfer.files[0]));
-['dragover', 'drop'].forEach((t) => window.addEventListener(t, (e) => e.preventDefault()));
+
+// Dépôt n'importe où dans la fenêtre.
+let dragDepth = 0;
+const hasFiles = (e) => [...(e.dataTransfer?.types || [])].includes('Files');
+window.addEventListener('dragenter', (e) => {
+  if (!hasFiles(e) || uploading) return;
+  dragDepth++;
+  $('dropOverlay').hidden = false;
+});
+window.addEventListener('dragleave', () => {
+  if (--dragDepth <= 0) { dragDepth = 0; $('dropOverlay').hidden = true; }
+});
+window.addEventListener('dragover', (e) => e.preventDefault());
+window.addEventListener('drop', (e) => {
+  e.preventDefault();
+  dragDepth = 0;
+  $('dropOverlay').hidden = true;
+  if (e.dataTransfer.files[0]) upload(e.dataTransfer.files[0]);
+});
 
 // --- Traitements -------------------------------------------------------------
 let filter = 'all';
+let query = '';
 let shown = PAGE;
 let jobsCache = [];
 $('filters').querySelectorAll('button').forEach((b) => b.onclick = () => {
@@ -465,6 +836,7 @@ $('filters').querySelectorAll('button').forEach((b) => b.onclick = () => {
   $('filters').querySelectorAll('button').forEach((x) => x.setAttribute('aria-pressed', x === b));
   renderJobs(jobsCache, true);
 });
+$('jobSearch').oninput = () => { query = $('jobSearch').value.trim().toLowerCase(); shown = PAGE; renderJobs(jobsCache, true); };
 
 // Temps restant : vitesse observée depuis la première fois que le job est vu
 // en cours dans cette page.
@@ -489,6 +861,57 @@ function partLabel(path, i, count) {
   return count > 1 ? `Fichier ${i + 1}` : 'Télécharger';
 }
 
+// Description d'un travail : taille avant → après, progression, langue.
+function jobInfo(j) {
+  const running = ACTIVE.includes(j.status);
+  const percent = Math.round((j.progress || 0) * 100);
+  const sizes = j.output_sizes || [];
+  const outputs = j.outputs || [];
+  // Taille et nombre de parties : vidéos seulement, sans les sous-titres.
+  // Une taille null = fichier absent du disque (supprimé ou déplacé).
+  const present = outputs.filter((_, i) => sizes[i] != null).length;
+  const videos = outputs.map((o, i) => [o, sizes[i]]).filter(([o, n]) => isVideo(o) && n != null);
+  const measured = videos.length ? videos.map(([, n]) => n) : sizes.filter((n) => n != null);
+  const outTotal = measured.reduce((a, b) => a + b, 0);
+  const count = outputs.filter(isVideo).length || outputs.length;
+  const over = measured.some((s) => s > maxMb() * MO);
+  const langTag = j.language ? ` · ${j.language === 'en' ? 'anglais' : 'français'}` : '';
+
+  let meta = bytes(j.size) + langTag;
+  if (j.status === 'done' && outputs.length && !present) {
+    meta += ' → <span class="big">fichiers supprimés du disque</span>';
+  } else if (j.status === 'done') {
+    meta += ` → <span class="${over ? 'big' : 'fit'}">${bytes(outTotal)}</span>`
+      + (measured.length > 1 ? ` en ${measured.length} fichiers (max ${bytes(Math.max(...measured))})` : '')
+      + (present < outputs.length ? ` · <span class="big">${outputs.length - present} manquant${outputs.length - present > 1 ? 's' : ''}</span>` : '');
+  } else if (running && j.status !== 'queued') {
+    meta += ` · ${STATUS[j.status] || j.status} ${percent} %${eta(j)}`;
+  }
+  const badge = j.status === 'done' ? 'done' : j.status === 'failed' ? 'failed' : running ? 'run' : '';
+  return { running, percent, sizes, outputs, present, count, meta, badge };
+}
+
+// Liens de téléchargement : le .zip d'abord dès qu'il y a plusieurs fichiers.
+function jobLinks(j, info, open, compact = false) {
+  const { sizes, outputs, present, count } = info;
+  if (j.status !== 'done' || !present) return '';
+  const all = sizes.reduce((a, b) => a + (b || 0), 0);
+  const title = j.filename.replace(/\.[^.]+$/, '');
+  const zip = present > 1
+    ? `<a class="dl zip" href="/jobs/${j.id}/archive.zip" download title="Dossier « ${esc(title)} » : ${present} fichiers · ${bytes(all)}">${ico('download')}Tout (.zip) · ${bytes(all)}</a>` : '';
+  const buttons = outputs.map((o, i) => sizes[i] == null ? '' :
+    `<a class="dl" href="/jobs/${j.id}/files/${i}" download title="${esc(o.split('/').pop())} · ${bytes(sizes[i])}">${ico('download')}${partLabel(o, i, count)}</a>`).join('');
+  if (compact) return zip || buttons;
+  return zip + (present > 3
+    ? `<details class="parts" data-id="parts-${j.id}" ${open.has('parts-' + j.id) ? 'open' : ''}>
+         <summary>${present} fichiers séparés</summary><div class="files">${buttons}</div></details>`
+    : buttons);
+}
+
+function fileIcon(name) {
+  return `<div class="ficon video">${ico(AUDIO.test(name) ? 'audio' : 'film')}</div>`;
+}
+
 let lastSnapshot = '';
 function renderJobs(jobs, force = false) {
   jobsCache = jobs;
@@ -500,79 +923,51 @@ function renderJobs(jobs, force = false) {
   const files = done.reduce((n, j) => n + (j.outputs || []).length, 0);
 
   $('stats').innerHTML = [
-    [active.length, 'en cours ou en file'],
-    [done.length, 'terminés'],
-    [files, 'fichiers produits'],
-    [done.length ? `${bytes(inBytes)} → ${bytes(outBytes)}` : '—', 'avant → après'],
-    ...(failed.length ? [[failed.length, 'en échec']] : []),
-  ].map(([v, l]) => `<div class="stat"><b>${v}</b><span>${l}</span></div>`).join('');
+    ['clock', '', active.length, 'en cours ou en file'],
+    ['check', 'ok', done.length, 'terminés'],
+    ['box', '', files, 'fichiers produits'],
+    ['disk', 'ok', bytes(Math.max(inBytes - outBytes, 0)),
+      done.length ? `gagnés · ${bytes(inBytes)} → ${bytes(outBytes)}` : 'd\'espace gagné'],
+    ...(failed.length ? [['alert', 'err', failed.length, 'en échec']] : []),
+  ].map(([icon, cls, v, l]) => `<div class="stat"><div class="ic ${cls}">${ico(icon)}</div><div><b>${v}</b><span>${l}</span></div></div>`).join('');
   $('clearDone').hidden = !done.length;
   $('clearFailed').hidden = !failed.length;
+  $('navJobs').textContent = active.length || '';
+  $('navJobs').classList.toggle('hot', active.length > 0);
+  document.title = (active.length ? `(${active.length}) ` : '') + APP;
+  $('sbActive').textContent = active.length ? `${plural(active.length, 'traitement')} en cours` : 'Aucun traitement en cours';
 
-  const list = jobs.filter((j) => filter === 'all' || (filter === 'active' ? ACTIVE.includes(j.status) : j.status === filter));
-  const snapshot = JSON.stringify([list.slice(0, shown), filter, shown]);
+  renderDashboard(jobs, active, done);
+
+  const list = jobs.filter((j) => (filter === 'all' || (filter === 'active' ? ACTIVE.includes(j.status) : j.status === filter))
+    && (!query || `${j.folder || ''}/${j.filename}`.toLowerCase().includes(query)));
+  const snapshot = JSON.stringify([list.slice(0, shown), filter, shown, query]);
   if (!force && snapshot === lastSnapshot && !active.length) return;
   lastSnapshot = snapshot;
 
   if (!list.length) {
-    $('jobs').innerHTML = `<p class="empty">${jobs.length ? 'Rien dans cette catégorie.' : 'Aucun traitement. Choisis un fichier ou un dossier ci-dessus.'}</p>`;
+    $('jobs').innerHTML = jobs.length
+      ? emptyState('search', 'Rien dans cette catégorie.')
+      : emptyState('activity', 'Aucun traitement pour l\'instant.<br><a href="#/fichiers">Choisir des fichiers à traiter</a>');
     return;
   }
   const open = new Set([...$('jobs').querySelectorAll('details[open]')].map((d) => d.dataset.id));
-  const limit = maxMb() * MO;
 
   $('jobs').innerHTML = list.slice(0, shown).map((j) => {
-    const running = ACTIVE.includes(j.status);
-    const percent = Math.round((j.progress || 0) * 100);
-    const badge = j.status === 'done' ? 'done' : j.status === 'failed' ? 'failed' : running ? 'run' : '';
-    const sizes = j.output_sizes || [];
-    const outputs = j.outputs || [];
-    // Taille et nombre de parties : vidéos seulement, sans les sous-titres.
-    // Une taille null = fichier absent du disque (supprimé ou déplacé).
-    const present = outputs.filter((_, i) => sizes[i] != null).length;
-    const videos = outputs.map((o, i) => [o, sizes[i]]).filter(([o, n]) => isVideo(o) && n != null);
-    const measured = videos.length ? videos.map(([, n]) => n) : sizes.filter((n) => n != null);
-    const outTotal = measured.reduce((a, b) => a + b, 0);
-    const count = outputs.filter(isVideo).length || outputs.length;
-    const over = measured.some((s) => s > limit);
-    const langTag = j.language ? ` · ${j.language === 'en' ? 'anglais' : 'français'}` : '';
-
-    let meta = bytes(j.size) + langTag;
-    if (j.status === 'done' && outputs.length && !present) {
-      meta += ' → <span class="big">fichiers supprimés du disque</span>';
-    } else if (j.status === 'done') {
-      meta += ` → <span class="${over ? 'big' : 'fit'}">${bytes(outTotal)}</span>`
-        + (measured.length > 1 ? ` en ${measured.length} fichiers (max ${bytes(Math.max(...measured))})` : '')
-        + (present < outputs.length ? ` · <span class="big">${outputs.length - present} manquant${outputs.length - present > 1 ? 's' : ''}</span>` : '');
-    } else if (running && j.status !== 'queued') {
-      meta += ` · ${percent} %${eta(j)}`;
-    }
-
-    const all = sizes.reduce((a, b) => a + (b || 0), 0);
-    const title = j.filename.replace(/\.[^.]+$/, '');
-    const buttons = outputs.map((o, i) => sizes[i] == null ? '' :
-      `<a class="dl" href="/jobs/${j.id}/files/${i}" download title="${esc(o.split('/').pop())} · ${bytes(sizes[i])}">${partLabel(o, i, count)}</a>`).join('');
-    // Au-delà de quelques fichiers, le zip (un dossier au nom de la vidéo) est
-    // le téléchargement principal ; les fichiers séparés restent dépliables.
-    const links = j.status !== 'done' || !present ? '' : (present > 1
-      ? `<a class="dl zip" href="/jobs/${j.id}/archive.zip" download title="Dossier « ${esc(title)} » : ${present} fichiers · ${bytes(all)}">📦 Tout (.zip) · ${bytes(all)}</a>` : '')
-      + (present > 3
-        ? `<details class="parts" data-id="parts-${j.id}" ${open.has('parts-' + j.id) ? 'open' : ''}>
-             <summary>${present} fichiers séparés</summary><div class="files">${buttons}</div></details>`
-        : buttons);
-
+    const info = jobInfo(j);
     return `
       <div class="row">
+        ${fileIcon(j.filename)}
         <div class="grow">
           <div class="name" title="${esc(j.folder ? j.folder + '/' + j.filename : j.filename)}">${j.folder ? `<span class="muted">${esc(j.folder)}/</span>` : ''}${esc(j.filename)}</div>
-          <div class="meta">${meta}</div>
-          ${running && j.status !== 'queued' ? `<div class="bar"><i style="width:${percent}%"></i></div>` : ''}
+          <div class="meta">${info.meta}</div>
+          ${info.running && j.status !== 'queued' ? `<div class="bar"><i style="width:${info.percent}%"></i></div>` : ''}
           ${j.error ? `<details class="error" data-id="${j.id}" ${open.has(j.id) ? 'open' : ''}>
             <summary>${esc(j.error.split('\n')[0].slice(0, 140))}</summary><pre>${esc(j.error)}</pre></details>` : ''}
         </div>
-        <div class="files">${links}</div>
-        <span class="badge ${badge}">${esc(STATUS[j.status] || j.status)}</span>
-        <button type="button" class="ghost icon danger" data-del="${j.id}" title="Retirer">✕</button>
+        <div class="files">${jobLinks(j, info, open)}</div>
+        <span class="badge ${info.badge}">${esc(STATUS[j.status] || j.status)}</span>
+        <button type="button" class="icon danger" data-del="${j.id}" title="Retirer de la liste">${ico('x')}</button>
       </div>`;
   }).join('') + (list.length > shown
     ? `<div class="more"><button type="button" class="ghost" id="more">Afficher ${Math.min(PAGE, list.length - shown)} de plus (${list.length - shown} restants)</button></div>` : '');
@@ -582,12 +977,67 @@ function renderJobs(jobs, force = false) {
     const job = jobs.find((j) => j.id === b.dataset.del);
     const choice = await askRemove(job);
     if (!choice) return;
-    const r = await json(`/jobs/${job.id}?files=${choice === 'files'}`, { method: 'DELETE' });
-    toast(choice === 'files'
-      ? `Retiré · ${r.files_deleted} fichier${r.files_deleted > 1 ? 's' : ''} supprimé${r.files_deleted > 1 ? 's' : ''}`
-      : 'Retiré · fichiers conservés');
+    try {
+      const r = await json(`/jobs/${job.id}?files=${choice === 'files'}`, { method: 'DELETE' });
+      toast(choice === 'files'
+        ? `Retiré · ${plural(r.files_deleted, 'fichier')} supprimé${r.files_deleted > 1 ? 's' : ''}`
+        : 'Retiré · fichiers conservés');
+    } catch (error) {
+      fail(error.message);
+    }
     refresh();
   });
+}
+
+let lastDashboard = '';
+function renderDashboard(jobs, active, done) {
+  const recent = done.slice(0, 6);
+  const snapshot = JSON.stringify([active, recent]);
+  if (snapshot === lastDashboard) return;
+  lastDashboard = snapshot;
+  const none = new Set();
+  $('dashActive').innerHTML = active.length ? active.slice(0, 6).map((j) => {
+    const info = jobInfo(j);
+    return `
+      <div class="row">
+        ${fileIcon(j.filename)}
+        <div class="grow">
+          <div class="name" title="${esc(j.filename)}">${esc(j.filename)}</div>
+          <div class="meta">${j.status === 'queued' ? 'en attente' : info.meta}</div>
+          ${j.status !== 'queued' ? `<div class="bar"><i style="width:${info.percent}%"></i></div>` : ''}
+        </div>
+        <span class="badge run">${esc(STATUS[j.status] || j.status)}</span>
+      </div>`;
+  }).join('') + (active.length > 6 ? `<p class="muted">et ${active.length - 6} autres…</p>` : '')
+    : emptyState('clock', 'Aucun traitement en cours.');
+
+  $('dashRecent').innerHTML = recent.length ? recent.map((j) => {
+    const info = jobInfo(j);
+    return `
+      <div class="row">
+        ${fileIcon(j.filename)}
+        <div class="grow">
+          <div class="name" title="${esc(j.filename)}">${esc(j.filename)}</div>
+          <div class="meta">${info.meta}</div>
+        </div>
+        <div class="files">${jobLinks(j, info, none, true)}</div>
+      </div>`;
+  }).join('') : emptyState('check', 'Rien de terminé pour l\'instant.');
+}
+
+// Notification Windows quand un travail vu en cours se termine.
+let knownStatus = null;
+function notifyChanges(jobs) {
+  const previous = knownStatus;
+  knownStatus = Object.fromEntries(jobs.map((j) => [j.id, j.status]));
+  if (!previous || !prefs.notify || !('Notification' in window) || Notification.permission !== 'granted') return;
+  for (const j of jobs) {
+    if (!ACTIVE.includes(previous[j.id]) || !['done', 'failed'].includes(j.status)) continue;
+    const notice = new Notification(j.status === 'done' ? 'Traitement terminé' : 'Traitement en échec', {
+      body: j.filename, icon: '/static/icon-180.png', tag: j.id,
+    });
+    notice.onclick = () => { window.focus(); go('traitements'); };
+  }
 }
 
 // Fenêtre de confirmation. Résout la valeur du bouton choisi, '' si annulé.
@@ -619,7 +1069,7 @@ function askRemove(job) {
 
 async function deleteSource(e) {
   const folder = e.kind === 'folder';
-  const what = folder ? `le dossier « ${e.name} » et ses ${e.count} fichier${e.count > 1 ? 's' : ''}` : `« ${e.name} »`;
+  const what = folder ? `le dossier « ${e.name} » et ses ${plural(e.count, 'fichier')}` : `« ${e.name} »`;
   const choice = await ask({
     title: `Supprimer ${what} ?`,
     alert: `⚠ Suppression définitive du disque (${bytes(e.size)}), sans corbeille. `
@@ -631,7 +1081,7 @@ async function deleteSource(e) {
   if (choice !== 'delete') return;
   try {
     const r = await json('/media?path=' + encodeURIComponent(e.path), { method: 'DELETE' });
-    toast(`${e.name} supprimé · ${r.files_deleted} fichier${r.files_deleted > 1 ? 's' : ''} produit${r.files_deleted > 1 ? 's' : ''} supprimé${r.files_deleted > 1 ? 's' : ''}`);
+    toast(`${e.name} supprimé · ${plural(r.files_deleted, 'fichier')} produit${r.files_deleted > 1 ? 's' : ''} supprimé${r.files_deleted > 1 ? 's' : ''}`, 'trash');
   } catch (error) {
     fail(error.message);
   }
@@ -642,15 +1092,14 @@ async function deleteSource(e) {
 async function clear(status, label) {
   const n = jobsCache.filter((j) => j.status === status).length;
   const choice = await ask({
-    title: `Retirer ${n} traitement${n > 1 ? 's' : ''} ${label} de la liste ?`,
+    title: `Retirer ${plural(n, 'traitement')} ${label} de la liste ?`,
     text: 'En gardant les fichiers, compressions et sous-titres restent sur le disque. '
-      + 'Supprimer les efface aussi ; les vidéos d\'origine dans media/ ne sont pas touchées.',
+      + 'Supprimer les efface aussi ; les vidéos d\'origine ne sont pas touchées.',
     buttons: [['keep', 'Retirer, garder les fichiers', 'ghost'], ['files', 'Supprimer aussi les fichiers', 'destroy']],
   });
   if (!choice) return;
   try {
     const r = await json(`/jobs?status=${status}&files=${choice === 'files'}`, { method: 'DELETE' });
-    const plural = (k, w) => `${k} ${w}${k > 1 ? 's' : ''}`;
     toast(`${plural(r.deleted, 'traitement')} retiré${r.deleted > 1 ? 's' : ''}`
       + (choice === 'files' ? ` · ${plural(r.files_deleted, 'fichier')} supprimé${r.files_deleted > 1 ? 's' : ''}` : ' · fichiers conservés'));
   } catch (error) {
@@ -672,25 +1121,29 @@ function renderOutputs(groups) {
   const files = groups.reduce((n, g) => n + g.files.length, 0);
   const total = groups.reduce((n, g) => n + g.size, 0);
   $('clearOutputs').hidden = !groups.length;
-  $('outputsSummary').textContent = groups.length ? `${files} fichier${files > 1 ? 's' : ''} · ${bytes(total)}` : '';
+  $('navOutputs').textContent = groups.length || '';
+  $('outputsSummary').textContent = groups.length
+    ? `${plural(groups.length, 'vidéo')} · ${plural(files, 'fichier')} · ${bytes(total)}`
+    : 'Compressions et sous-titres, groupés par vidéo.';
   if (!groups.length) {
-    $('outputs').innerHTML = '<p class="empty">Aucun fichier produit.</p>';
+    $('outputs').innerHTML = emptyState('box', 'Aucun fichier produit pour l\'instant.');
     return;
   }
   $('outputs').innerHTML = groups.map((g, i) => {
     const videos = g.files.filter((f) => isVideo(f.name)).length;
     const others = g.files.length - videos;
-    const detail = [videos && `${videos} vidéo${videos > 1 ? 's' : ''}`, others && `${others} sous-titre${others > 1 ? 's' : ''}`]
+    const detail = [videos && plural(videos, 'vidéo'), others && plural(others, 'sous-titre')]
       .filter(Boolean).join(' + ');
     return `
       <div class="row">
+        <div class="ficon video">${ico('box')}</div>
         <div class="grow">
           <div class="name" title="${esc(g.files.map((f) => f.name).join('\n'))}">${g.subdir ? `<span class="muted">${esc(g.subdir)}/</span>` : ''}${esc(g.base)}</div>
           <div class="meta">${detail} · ${bytes(g.size)}</div>
         </div>
         <a class="dl zip" href="/outputs/archive.zip?base=${encodeURIComponent(g.base)}&subdir=${encodeURIComponent(g.subdir)}" download
-           title="Dossier « ${esc(g.base)} » en .zip">📦 Télécharger (.zip)</a>
-        <button type="button" class="ghost icon danger" data-out="${i}" title="Supprimer ces fichiers">🗑</button>
+           title="Dossier « ${esc(g.base)} » en .zip">${ico('download')}Télécharger (.zip)</a>
+        <button type="button" class="icon danger" data-out="${i}" title="Supprimer ces fichiers">${ico('trash')}</button>
       </div>`;
   }).join('');
   $('outputs').querySelectorAll('[data-out]').forEach((b) => b.onclick = () => deleteOutputs(outputGroups[b.dataset.out]));
@@ -701,17 +1154,17 @@ async function deleteOutputs(group) {
   const files = list.reduce((n, g) => n + g.files.length, 0);
   const total = list.reduce((n, g) => n + g.size, 0);
   const choice = await ask({
-    title: group ? `Supprimer les fichiers de « ${group.base} » ?` : `Supprimer tous les fichiers produits (${list.length} vidéo${list.length > 1 ? 's' : ''}) ?`,
-    alert: `⚠ ${files} fichier${files > 1 ? 's' : ''} (${bytes(total)}) seront supprimés définitivement du disque, sans corbeille : `
+    title: group ? `Supprimer les fichiers de « ${group.base} » ?` : `Supprimer tous les fichiers produits (${plural(list.length, 'vidéo')}) ?`,
+    alert: `⚠ ${plural(files, 'fichier')} (${bytes(total)}) seront supprimés définitivement du disque, sans corbeille : `
       + 'compressions et sous-titres.',
     text: 'Les vidéos d\'origine ne sont pas touchées. Les traitements terminés dont il ne reste plus aucun fichier sont retirés de la liste.',
     buttons: [['delete', group ? 'Supprimer' : 'Tout supprimer', 'destroy']],
   });
   if (choice !== 'delete') return;
   try {
-    const query = group ? `base=${encodeURIComponent(group.base)}&subdir=${encodeURIComponent(group.subdir)}` : 'all=true';
-    const r = await json('/outputs?' + query, { method: 'DELETE' });
-    toast(`${r.files_deleted} fichier${r.files_deleted > 1 ? 's' : ''} supprimé${r.files_deleted > 1 ? 's' : ''}`);
+    const q = group ? `base=${encodeURIComponent(group.base)}&subdir=${encodeURIComponent(group.subdir)}` : 'all=true';
+    const r = await json('/outputs?' + q, { method: 'DELETE' });
+    toast(`${plural(r.files_deleted, 'fichier')} supprimé${r.files_deleted > 1 ? 's' : ''}`, 'trash');
   } catch (error) {
     fail(error.message);
   }
@@ -719,31 +1172,54 @@ async function deleteOutputs(group) {
 }
 $('clearOutputs').onclick = () => deleteOutputs(null);
 
+// --- Actualisation -----------------------------------------------------------
+function setConnection(state, text) {
+  $('sbConn').innerHTML = `<span class="dot ${state}"></span><span></span>`;
+  $('sbConn').lastChild.textContent = text;
+}
+
 let timer;
 async function refresh() {
   clearTimeout(timer);
   let busy = false;
   try {
     const jobs = await json('/jobs?limit=5000');
-    $('health').className = 'dot up';
-    $('healthText').textContent = 'en ligne';
+    setConnection('up', 'En ligne');
     renderJobs(jobs);
+    notifyChanges(jobs);
     busy = jobs.some((j) => ACTIVE.includes(j.status));
     renderOutputs(await json('/outputs'));
-  } catch {
-    $('health').className = 'dot down';
-    $('healthText').textContent = 'serveur injoignable';
+    $('sbTime').textContent = 'Actualisé à ' + new Date().toLocaleTimeString('fr-FR');
+  } catch (error) {
+    // 401 : le serveur répond, c'est la session qui manque.
+    setConnection('down', error.status === 401 ? 'Connexion requise' : 'Serveur injoignable');
   }
   timer = setTimeout(refresh, busy || uploading ? 3000 : 10000);
 }
+// Revenir sur la fenêtre actualise tout de suite.
+document.addEventListener('visibilitychange', () => { if (!document.hidden) refresh(); });
 
-json('/settings').then((s) => {
-  $('mediaPath').textContent = s.media_path;
-  $('outputPath').textContent = s.output_path;
-}).catch(() => {});
-onSettings();
-loadMedia();
-refresh();
+// Connexion automatique depuis l'icône du Bureau : le lanceur ouvre /#jeton=….
+// Le fragment n'est jamais envoyé au serveur, et il est effacé de la barre
+// d'adresse et de l'historique avant toute autre chose.
+async function autoLogin() {
+  const token = new URLSearchParams(location.hash.slice(1)).get('jeton');
+  if (!token) return;
+  history.replaceState(null, '', location.pathname + location.search);
+  await login(token).catch(() => {});
+}
+
+autoLogin().then(() => {
+  route();
+  json('/settings').then((s) => {
+    for (const id of ['mediaPath', 'setMediaPath']) $(id).textContent = s.media_path;
+    for (const id of ['outputPath', 'setOutputPath']) $(id).textContent = s.output_path;
+  }).catch(() => {});
+  json('/health').then((h) => { $('version').textContent = h.version; }).catch(() => {});
+  onSettings();
+  loadMedia();
+  refresh();
+});
 </script>
 </body>
 </html>

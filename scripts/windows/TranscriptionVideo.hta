@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+<meta http-equiv="x-ua-compatible" content="ie=11">
+<title>Transcription Vidéo</title>
+<!--
+  Écran de démarrage de Transcription Vidéo (Windows).
+  Modèle : scripts/installer-raccourci.sh remplace les __VALEURS__ et l'installe
+  dans %LOCALAPPDATA%\TranscriptionVideo. Il lance scripts/lancer.sh dans WSL
+  sans console, suit son avancement dans un fichier d'état, puis ouvre
+  l'interface dans une fenêtre d'application (sans onglets ni barre d'adresse).
+-->
+<hta:application id="app" applicationname="TranscriptionVideo" border="none" caption="no"
+  icon="__DOSSIER__\icon.ico" innerborder="no" maximizebutton="no" minimizebutton="no"
+  scroll="no" selection="no" showintaskbar="yes" singleinstance="yes" contextmenu="no" sysmenu="no">
+<style>
+  html, body { margin: 0; height: 100%; overflow: hidden; }
+  body { font-family: "Segoe UI", sans-serif; color: #ececef; cursor: default;
+    background: #17171d; border: 1px solid #33333d; box-sizing: border-box; }
+  .top { height: 150px; text-align: center; padding-top: 34px; box-sizing: border-box;
+    background: #3b5bdb; background: linear-gradient(160deg, #4c6ef5, #364fc7); }
+  .top img { width: 72px; height: 72px; }
+  .zone { padding: 22px 34px 0; }
+  h1 { font-size: 20px; font-weight: 600; margin: 0 0 4px; }
+  #texte { font-size: 13px; color: #a3a4ae; margin: 0; height: 36px; overflow: hidden; }
+  .barre { height: 4px; background: #2a2a33; border-radius: 2px; overflow: hidden; margin-top: 8px; position: relative; }
+  .barre i { position: absolute; top: 0; left: -40%; width: 40%; height: 4px; background: #748ffc; border-radius: 2px;
+    animation: file 1.3s ease-in-out infinite; }
+  @keyframes file { from { left: -40%; } to { left: 100%; } }
+  .erreur .barre i { animation: none; left: 0; width: 100%; background: #ff6b6b; }
+  .erreur #texte { color: #ff8787; }
+  .boutons { position: absolute; right: 24px; bottom: 18px; display: none; }
+  .erreur .boutons { display: block; }
+  button { font-family: inherit; font-size: 13px; padding: 6px 14px; margin-left: 6px; border-radius: 6px;
+    border: 1px solid #3a3a45; background: #24242c; color: #ececef; cursor: pointer; }
+  button.principal { background: #4c6ef5; border-color: #4c6ef5; color: #fff; }
+</style>
+<script type="text/javascript">
+  var DISTRIBUTION = "__DISTRIBUTION__";
+  var DEPOT = "__DEPOT__";
+  var ETAT_WINDOWS = "__DOSSIER_JS__\\demarrage.etat";
+  var ETAT_WSL = "__DOSSIER_WSL__/demarrage.etat";
+  var JOURNAL = "__DOSSIER_JS__\\demarrage.log";
+  var LARGEUR = 460, HAUTEUR = 340;
+  var DELAI_MAX = 5 * 60 * 1000;
+
+  var shell = new ActiveXObject("WScript.Shell");
+  var fso = new ActiveXObject("Scripting.FileSystemObject");
+  var debut, minuterie;
+
+  window.resizeTo(LARGEUR, HAUTEUR);
+  window.moveTo((screen.availWidth - LARGEUR) / 2, (screen.availHeight - HAUTEUR) / 2);
+
+  function lireUtf8(chemin) {
+    var flux = new ActiveXObject("ADODB.Stream");
+    flux.Type = 2; flux.Charset = "utf-8"; flux.Open();
+    try { flux.LoadFromFile(chemin); return flux.ReadText(); }
+    catch (e) { return ""; }
+    finally { flux.Close(); }
+  }
+
+  function texte(message) { document.getElementById("texte").innerText = message; }
+
+  function demarrer() {
+    document.body.className = "";
+    texte("Démarrage…");
+    try { if (fso.FileExists(ETAT_WINDOWS)) fso.DeleteFile(ETAT_WINDOWS); } catch (e) {}
+    // 0 : sans fenêtre ; false : sans attendre (le script garde WSL actif ensuite).
+    shell.Run('"' + shell.ExpandEnvironmentStrings("%SystemRoot%") + '\\System32\\wsl.exe" -d ' + DISTRIBUTION
+      + ' --cd "' + DEPOT + '" -- bash scripts/lancer.sh --fenetre "' + ETAT_WSL + '"', 0, false);
+    debut = new Date().getTime();
+    minuterie = setInterval(suivre, 400);
+  }
+
+  function suivre() {
+    var lignes = lireUtf8(ETAT_WINDOWS).replace(/\r/g, "").split("\n");
+    var derniere = "";
+    for (var i = lignes.length - 1; i >= 0; i--) { if (lignes[i]) { derniere = lignes[i]; break; } }
+    if (!derniere) {
+      if (new Date().getTime() - debut > DELAI_MAX) echec("Le démarrage prend trop de temps.");
+      return;
+    }
+    var separateur = derniere.indexOf("|");
+    var code = derniere.substring(0, separateur), valeur = derniere.substring(separateur + 1);
+    if (code === "pret") { clearInterval(minuterie); texte("Ouverture de l'interface…"); ouvrir(valeur); }
+    else if (code === "erreur") { echec(valeur); }
+    else { texte(valeur); if (new Date().getTime() - debut > DELAI_MAX) echec("Le démarrage prend trop de temps."); }
+  }
+
+  function echec(message) {
+    clearInterval(minuterie);
+    document.body.className = "erreur";
+    texte(message);
+  }
+
+  function lireRegistre(cle) {
+    try { return shell.RegRead(cle); } catch (e) { return ""; }
+  }
+
+  // Navigateur Chromium pour la fenêtre d'application : celui par défaut s'il
+  // en est un, sinon Edge (toujours présent sur Windows 10 et 11).
+  function navigateur() {
+    var choix = lireRegistre("HKCU\\Software\\Microsoft\\Windows\\Shell\\Associations\\UrlAssociations\\http\\UserChoice\\ProgId");
+    var ordre = ["msedge.exe"];
+    if (/^ChromeHTML/i.test(choix)) ordre.unshift("chrome.exe");
+    else if (/^BraveHTML/i.test(choix)) ordre.unshift("brave.exe");
+    else if (/^(MSEdgeHTM|Vivaldi)/i.test(choix)) ordre.unshift(/^Vivaldi/i.test(choix) ? "vivaldi.exe" : "msedge.exe");
+    for (var i = 0; i < ordre.length; i++) {
+      var racines = ["HKCU", "HKLM"];
+      for (var j = 0; j < racines.length; j++) {
+        var chemin = lireRegistre(racines[j] + "\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\App Paths\\" + ordre[i] + "\\");
+        if (chemin && fso.FileExists(chemin.replace(/"/g, ""))) return chemin.replace(/"/g, "");
+      }
+    }
+    return "";
+  }
+
+  function ouvrir(adresse) {
+    var exe = navigateur();
+    if (exe) {
+      shell.Run('"' + exe + '" --app="' + adresse + '" --window-size=1360,880', 1, false);
+    } else {
+      shell.Run('"' + adresse + '"', 1, false);   // navigateur par défaut, avec onglets
+    }
+    setTimeout(function () { window.close(); }, 1500);
+  }
+
+  function journal() { shell.Run('notepad.exe "' + JOURNAL + '"', 1, false); }
+</script>
+</head>
+<body onload="demarrer()">
+  <div class="top"><img src="icon-180.png" alt=""></div>
+  <div class="zone">
+    <h1>Transcription Vidéo</h1>
+    <p id="texte">Démarrage…</p>
+    <div class="barre"><i></i></div>
+  </div>
+  <div class="boutons">
+    <button onclick="journal()">Voir le détail</button>
+    <button onclick="window.close()">Fermer</button>
+    <button class="principal" onclick="demarrer()">Réessayer</button>
+  </div>
+</body>
+</html>
