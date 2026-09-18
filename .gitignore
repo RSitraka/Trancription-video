@@ -1,5 +1,7 @@
 # Environnement
 .env
+# Versions déployées sur cette machine (make deploy)
+.deploy/
 .venv
 venv
 

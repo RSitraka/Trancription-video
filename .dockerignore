@@ -21,3 +21,7 @@ out/
 *.srt
 *.vtt
 README.md
+# Données : jamais dans l'image (plusieurs Go de vidéos et de résultats).
+media/
+output/
+.deploy/

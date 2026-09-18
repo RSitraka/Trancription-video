@@ -1,0 +1,26 @@
+# Mode développement : le code du dépôt est monté dans les conteneurs, et l'API
+# se recharge à chaque modification. Pour essayer un changement avant de le
+# déployer (make deploy). Lancé par : make dev   —   retour à la version
+# déployée : make up (ou l'icône du Bureau).
+#
+# Le worker Celery ne se recharge pas seul : docker compose restart worker.
+
+x-code: &code
+  environment:
+    APP_VERSION: dev (code du dépôt)
+  volumes:
+    - ./source:/app/source:ro
+    - ./main.py:/app/main.py:ro
+
+services:
+  api:
+    <<: *code
+    command: >
+      uvicorn source.api:app --host 0.0.0.0 --port 8000
+      --reload --reload-dir /app/source
+
+  worker:
+    <<: *code
+
+  cli:
+    <<: *code

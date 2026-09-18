@@ -54,3 +54,13 @@ HEALTHCHECK --interval=30s --timeout=5s --start-period=40s --retries=3 \
     CMD curl -fsS http://localhost:8000/health || exit 1
 
 CMD ["uvicorn", "source.api:app", "--host", "0.0.0.0", "--port", "8000"]
+
+# --- Tests -------------------------------------------------------------------
+# Étape à part : pytest n'alourdit pas l'image de production. Les services
+# api / worker / cli ciblent « runtime » ; `make test` construit celle-ci.
+FROM runtime AS test
+USER root
+COPY requirements-dev.txt .
+RUN --mount=type=cache,target=/root/.cache/pip pip install -r requirements-dev.txt
+USER app
+CMD ["pytest"]

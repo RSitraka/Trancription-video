@@ -5,27 +5,34 @@
 x-app: &app
   build:
     context: .
+    target: runtime
     args:
       BASE_IMAGE: ubuntu:24.04
-  image: transcription-video-audio:latest
+  # Version déployée (make deploy) : le code est dans l'image, figé.
+  image: transcription-video-audio:${APP_TAG:-latest}
   env_file: .env
   environment:
-    DATABASE_URL: postgresql://transcription:transcription@postgres:5432/transcription
+    # Mot de passe obligatoire, lu dans .env : caractères sûrs dans une URL
+    # (ex. openssl rand -hex 24).
+    DATABASE_URL: postgresql://transcription:${POSTGRES_PASSWORD:?définir POSTGRES_PASSWORD dans .env}@postgres:5432/transcription
     REDIS_URL: redis://redis:6379/0
     QDRANT_URL: http://qdrant:6333
+    APP_VERSION: ${APP_TAG:-latest}   # affichée dans l'interface (Réglages)
     WORK_DIR: /data/tmp
     OUTPUT_DIR: /data/out
     # Chemins côté hôte, affichés dans l'interface.
     MEDIA_PATH_HOST: ${MEDIA_PATH:-./media}
     OUTPUT_PATH_HOST: ${OUTPUT_PATH:-./output}
+  # Pas de code monté ici : la version installée ne change pas quand on modifie
+  # les fichiers. Pour travailler en direct : make dev (docker-compose.dev.yml).
   volumes:
-    - ./source:/app/source          # code monté à chaud en développement
-    - ./main.py:/app/main.py
     # Sources lues sur place, jamais copiées : un fichier de 2 To ne tient ni
     # dans le volume Docker ni dans un upload navigateur. MEDIA_PATH peut
     # pointer vers un disque externe, ex. /mnt/e/videos.
     - ${MEDIA_PATH:-./media}:/media:ro
-    - data:/data                    # chunks, uploads, fichiers temporaires
+    # Fichiers temporaires (piste audio extraite, morceaux, uploads) : volume
+    # Docker par défaut, ou un dossier sur un gros disque (WORK_PATH dans .env).
+    - ${WORK_PATH:-data}:/data
     # Résultats dans un dossier de l'hôte, accessibles depuis Windows.
     - ${OUTPUT_PATH:-./output}:/data/out
     - models:/models                # cache des modèles Whisper
@@ -38,18 +45,18 @@ services:
   api:
     <<: *app
     ports:
-      # Port hôte configurable : 8000 est souvent déjà pris (API_PORT dans .env)
-      - "${API_PORT:-8000}:8000"
+      # Port hôte configurable : 8000 est souvent déjà pris (API_PORT dans .env).
+      # Joignable depuis cette machine seulement : l'API n'a pas
+      # d'authentification. BIND_ADDRESS=0.0.0.0 l'ouvre au réseau (à éviter).
+      - "${BIND_ADDRESS:-127.0.0.1}:${API_PORT:-8000}:8000"
     command: >
       uvicorn source.api:app --host 0.0.0.0 --port 8000
     # Seule l'API écrit dans MEDIA_PATH (suppression d'une vidéo depuis
     # l'interface) ; worker et cli le gardent en lecture seule. La liste
     # remplace entièrement celle de x-app : la garder synchronisée.
     volumes:
-      - ./source:/app/source
-      - ./main.py:/app/main.py
       - ${MEDIA_PATH:-./media}:/media
-      - data:/data
+      - ${WORK_PATH:-data}:/data
       - ${OUTPUT_PATH:-./output}:/data/out
       - models:/models
 
@@ -75,11 +82,35 @@ services:
     healthcheck:
       disable: true
 
+  # Tests automatisés : docker compose --profile test run --rm test (ou make test).
+  # Autonomes : base SQLite et courtier simulés, aucun service requis.
+  test:
+    build:
+      context: .
+      target: test
+      args:
+        BASE_IMAGE: ubuntu:24.04
+    image: transcription-video-audio:test
+    profiles: ["test"]
+    environment:
+      DATABASE_URL: sqlite:////tmp/tests.db
+      COVERAGE_FILE: /tmp/.coverage       # dépôt monté en lecture seule
+    volumes:
+      # Dépôt entier en lecture seule : les tests vérifient aussi la
+      # configuration (compose, Dockerfile, .gitignore) sans rien modifier.
+      - .:/app:ro
+      # .env masqué : les réglages locaux ne doivent pas influencer les tests.
+      - /dev/null:/app/.env:ro
+    command: ["pytest"]
+    restart: "no"
+    healthcheck:
+      disable: true
+
   postgres:
     image: postgres:16-alpine
     environment:
       POSTGRES_USER: transcription
-      POSTGRES_PASSWORD: transcription
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?définir POSTGRES_PASSWORD dans .env}
       POSTGRES_DB: transcription
     volumes:
       - pgdata:/var/lib/postgresql/data
@@ -93,7 +124,8 @@ services:
   qdrant:
     image: qdrant/qdrant:v1.12.4
     ports:
-      - "${QDRANT_PORT:-6333}:6333"
+      # Console locale uniquement : Qdrant n'a pas de clé d'API ici.
+      - "${BIND_ADDRESS:-127.0.0.1}:${QDRANT_PORT:-6333}:6333"
     volumes:
       - qdrantdata:/qdrant/storage
     healthcheck:

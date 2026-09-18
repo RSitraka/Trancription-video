@@ -7,9 +7,10 @@
 x-gpu: &gpu
   # Tag distinct : sans lui, `docker compose build` en CPU écrase l'image GPU
   # sous le même nom, et libcublas disparaît sans prévenir.
-  image: transcription-video-audio:gpu
+  image: transcription-video-audio:gpu-${APP_TAG:-latest}
   build:
     context: .
+    target: runtime
     args:
       BASE_IMAGE: nvidia/cuda:12.9.2-cudnn-runtime-ubuntu24.04
   environment:
@@ -34,9 +35,10 @@ x-gpu: &gpu
 services:
   # L'API n'infère pas : elle reste sur CPU, mais doit partager l'image CUDA.
   api:
-    image: transcription-video-audio:gpu
+    image: transcription-video-audio:gpu-${APP_TAG:-latest}
     build:
       context: .
+      target: runtime
       args:
         BASE_IMAGE: nvidia/cuda:12.9.2-cudnn-runtime-ubuntu24.04
 
