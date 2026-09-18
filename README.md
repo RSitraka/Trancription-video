@@ -35,6 +35,7 @@ Le projet répond à deux besoins distincts, volontairement découplés :
 - [Tests](#tests)
 - [Dépannage](#dépannage)
 - [Feuille de route](#feuille-de-route)
+- [Documentation projet](#documentation-projet)
 
 ---
 
@@ -143,13 +144,56 @@ git clone <url-du-depot> transcription_video_audio
 cd transcription_video_audio
 
 cp .env.example .env          # ajuster modèle, langue, taille cible
+# Secrets obligatoires / conseillés (voir docs/SECURITE.md)
+sed -i "s/^POSTGRES_PASSWORD=.*/POSTGRES_PASSWORD=$(openssl rand -hex 24)/" .env
+sed -i "s/^API_TOKEN=.*/API_TOKEN=$(openssl rand -hex 32)/" .env
 mkdir -p media               # y déposer les fichiers à traiter
 ```
 
-### Avec Make (le plus simple)
+### Comme un logiciel Windows (WSL)
 
 ```bash
-make start    # construit et démarre toute la stack, affiche l'adresse de l'interface
+make shortcut   # icône « Transcription Vidéo » sur le Bureau et dans le menu Démarrer
+```
+
+Un double-clic sur l'icône :
+
+1. affiche un **écran de démarrage** (sans console) qui suit l'avancement :
+   Docker, services, carte graphique (le worker est redémarré s'il a perdu le GPU) ;
+2. ouvre l'interface dans une **fenêtre d'application** — sans onglets ni barre
+   d'adresse — avec le navigateur par défaut s'il est basé sur Chromium
+   (Chrome, Edge, Brave, Vivaldi), sinon Edge ;
+3. garde WSL actif en arrière-plan : les traitements continuent même fenêtre fermée.
+
+En cas d'échec, l'écran de démarrage affiche le message, avec **Voir le détail**
+(journal complet) et **Réessayer**.
+
+Fichiers installés dans `%LOCALAPPDATA%\TranscriptionVideo` : l'écran de démarrage
+(`TranscriptionVideo.hta`, généré depuis `scripts/windows/`), l'icône et le
+journal du dernier démarrage. Relancer `make shortcut` après avoir déplacé le dépôt.
+Depuis un terminal, sans écran de démarrage : `make launch`.
+
+L'icône est générée par `scripts/make_icons.py` : `make icons` pour la régénérer.
+
+### Déployer une modification
+
+Le logiciel lancé par l'icône est une **version déployée** : son code est figé
+dans l'image Docker, modifier les fichiers du dépôt ne le change pas.
+
+```bash
+make dev        # modifier en direct (code du dépôt monté, API rechargée)
+make test       # vérifier
+make deploy     # tests + nouvelle version + bascule ; retour automatique si échec
+make rollback   # revenir à la version précédente
+make versions   # version en service et historique
+```
+
+Détails : [docs/DEPLOIEMENT.md](docs/DEPLOIEMENT.md).
+
+### Avec Make
+
+```bash
+make start    # démarre la version déployée (déploie d'abord au tout premier lancement)
 make stop     # arrête la stack (les volumes et les sorties sont conservés)
 ```
 
@@ -198,6 +242,11 @@ curl localhost:8100/health          # {"status":"ok","version":"0.1.0"}
 > Le port hôte est réglé par `API_PORT` dans `.env` (8100 par défaut, car 8000
 > et 8080 sont souvent déjà occupés). Dans le conteneur, l'API écoute toujours
 > sur 8000.
+>
+> L'API et Qdrant ne sont joignables **que depuis cette machine** (`127.0.0.1`) :
+> l'API n'a pas d'authentification et permet de supprimer des vidéos.
+> `BIND_ADDRESS=0.0.0.0` dans `.env` les ouvre au réseau local — voir
+> [docs/SECURITE.md](docs/SECURITE.md) avant de le faire.
 
 ---
 
@@ -217,7 +266,7 @@ curl localhost:8100/health          # {"status":"ok","version":"0.1.0"}
 | Volume | Contenu | Pourquoi |
 |---|---|---|
 | `./media` → `/media` (ro) | fichiers sources | bind mount : pas de copie d'un fichier de 500 Go dans Docker |
-| `data` → `/data` | chunks, sorties | volume nommé, survit à `docker compose down` |
+| `data` (ou `WORK_PATH`) → `/data` | piste audio extraite, morceaux, uploads | volume nommé, survit à `docker compose down` ; `WORK_PATH` le place sur un autre disque |
 | `models` → `/models` | modèles Whisper (~3 Go) | évite un retéléchargement à chaque démarrage |
 | `pgdata`, `redisdata` | état des jobs | reprise après redémarrage |
 
@@ -240,8 +289,31 @@ saturent la VRAM (~5 Go chacun en `float16`).
 
 ## Interface web
 
-Ouvrir <http://localhost:8100> (port `API_PORT`). Une page unique, servie par
-FastAPI — ni Node, ni build, ni dépendance supplémentaire.
+Ouvrir avec l'icône du Bureau, ou <http://localhost:8100> (port `API_PORT`).
+Une page unique, servie par FastAPI — ni Node, ni build, ni dépendance
+supplémentaire — organisée comme une application :
+
+| Page | Contenu |
+|---|---|
+| **Tableau de bord** | chiffres clés (en cours, terminés, espace gagné), traitements en cours, derniers résultats |
+| **Fichiers à traiter** | options (langue, taille maximale, découpage), vidéos du dossier source, envoi depuis le PC |
+| **Traitements** | filtres, recherche, progression et temps restant, téléchargements |
+| **Fichiers produits** | résultats groupés par vidéo, archive `.zip`, suppression |
+| **Réglages** | thème (système, clair, sombre), notification Windows en fin de traitement, dossiers, raccourcis |
+
+Un fichier peut être déposé n'importe où dans la fenêtre. Raccourcis :
+<kbd>Alt</kbd>+<kbd>1</kbd>…<kbd>5</kbd> (pages), <kbd>Ctrl</kbd>+<kbd>O</kbd> (envoyer un fichier),
+<kbd>Ctrl</kbd>+<kbd>F</kbd> (rechercher). La barre d'état indique la connexion,
+les traitements en cours et la dernière actualisation.
+
+**Aucune connexion n'est demandée** : l'interface n'est joignable que depuis ce
+PC (`127.0.0.1`), elle ne répond qu'aux adresses `localhost` / `127.0.0.1`, et
+refuse toute requête émise par un autre site web ouvert dans le navigateur.
+
+Pour ouvrir l'accès au réseau (`BIND_ADDRESS=0.0.0.0`), activer d'abord le jeton :
+`REQUIRE_TOKEN=true` dans `.env`, et ajouter le nom de la machine à
+`ALLOWED_HOSTS`. L'interface demande alors le jeton (`API_TOKEN`) une fois par
+navigateur ; l'icône du Bureau connecte automatiquement.
 
 ```
 ┌──────────────────────────────────────────────────────────┐
@@ -350,13 +422,26 @@ suivant.
 
 ### API
 
-Exposée dès `docker compose up`, sur le port `API_PORT` (`.env`).
+Exposée dès `docker compose up`, sur le port `API_PORT` (`.env`), sans
+authentification depuis ce PC. Les requêtes doivent viser `localhost` ou
+`127.0.0.1` (`ALLOWED_HOSTS`). Avec `REQUIRE_TOKEN=true`, ajouter le jeton :
+
+```bash
+export TOKEN=$(grep '^API_TOKEN=' .env | cut -d= -f2)
+alias api='curl -H "Authorization: Bearer $TOKEN"'   # puis remplacer curl par api
+```
+
+Limites d'upload : morceaux de 128 Mo au plus, total égal à la taille annoncée,
+taille annoncée tenant dans l'espace disque libre (réglages
+`UPLOAD_PART_MAX_MB`, `UPLOAD_FREE_MARGIN_MB`).
 
 | Méthode | Route | Rôle |
 |---|---|---|
 | `GET` | `/` | interface web |
 | `GET` | `/api` | index JSON des routes |
-| `GET` | `/health` | sonde de vie |
+| `GET` | `/health` | sonde de vie (sans jeton) |
+| `POST` | `/login` | `{"token": "…"}` → cookie de session pour le navigateur |
+| `POST` | `/logout` | fin de session |
 | `GET` | `/media` | fichiers présents dans `media/` |
 | `GET` | `/search` | recherche sémantique (`q`, `limit`, `source`) |
 | `GET` | `/sources` | vidéos indexées dans Qdrant |
@@ -406,21 +491,19 @@ Documentation interactive : <http://localhost:8100/docs>
 
 ### Développement
 
-`./source` et `main.py` sont montés en bind mount : le code modifié sur l'hôte
-est vu immédiatement dans les conteneurs.
+Le logiciel en service utilise le code **figé** au dernier `make deploy`. Pour
+travailler sur le code en direct :
 
 ```bash
+make dev                                # code du dépôt monté, API rechargée à chaque modification
+docker compose restart worker           # le worker, lui, se relance à la main
 docker compose exec api bash            # shell dans le conteneur
-docker compose restart worker           # recharger après modification
-docker compose exec cli ffmpeg -version # FFmpeg de l'image
+make up                                 # retour à la version déployée
 ```
 
-Reconstruire après ajout d'une dépendance dans `requirements.txt` :
-
-```bash
-docker compose build --no-cache api && docker compose up -d
-```
-
+Une fois satisfait : `make test`, `git commit`, `make deploy`
+(voir [docs/DEPLOIEMENT.md](docs/DEPLOIEMENT.md)). Après ajout d'une dépendance
+dans `requirements.txt`, `make deploy` reconstruit aussi l'image.
 
 ---
 
@@ -462,6 +545,36 @@ Ordres de grandeur observés sur une source 4K ProRes :
 > s'en tenir à `hevc_nvenc`.
 
 ---
+
+## Très gros fichiers (plusieurs To)
+
+Un fichier de plusieurs To n'est **jamais copié** : il est lu sur place, en flux.
+Ne pas l'envoyer depuis l'interface (refusé si l'espace manque) ni le copier
+dans `media/`. Le laisser sur son disque (USB, NAS) et, dans `.env` :
+
+```bash
+MEDIA_PATH=/mnt/e/videos                 # où est le fichier
+OUTPUT_PATH=/mnt/e/resultats             # parties compressées et sous-titres
+WORK_PATH=/mnt/e/transcription-travail   # fichiers temporaires (sinon sur C:)
+```
+
+puis `make up`. Place à prévoir, par heure de vidéo :
+
+| | Par heure | Exemple : 270 h (6 To de 4K H.264 à 50 Mbps) |
+|---|---|---|
+| Temporaire (`WORK_PATH`) : piste audio extraite | ~115 Mo | ~31 Go |
+| Résultats (`OUTPUT_PATH`) : parties de 300 Mo, ≥ 1000 kbps | ~450 Mo | ~120 Go, ~420 fichiers |
+
+- **Espace vérifié avant chaque étape** : si la piste audio ou les parties
+  compressées ne tiennent pas, le traitement est refusé tout de suite, avec les
+  Go nécessaires et disponibles, au lieu d'échouer après des heures de lecture.
+- Au-delà de ~37 h d'audio (4 Go), la piste est écrite au format **RF64**, que
+  le WAV classique ne sait pas dépasser.
+- Une interruption (coupure, redémarrage, `make deploy` avec `FORCE=1`) ne fait
+  rien perdre : morceaux transcrits et parties compressées sont repris.
+- Durée : le fichier est lu au moins deux fois en entier (audio, puis
+  compression) ; depuis un disque USB, compter 8 à 11 h par lecture de 6 To.
+  Désactiver la mise en veille de Windows pendant le traitement.
 
 ## Traitement par chunks
 
@@ -715,10 +828,24 @@ transcription_video_audio/
 ├── Dockerfile              # image commune api / worker / cli
 ├── docker-compose.yml      # stack CPU (défaut)
 ├── docker-compose.gpu.yml  # override GPU (NVIDIA)
+├── docker-compose.dev.yml  # mode développement : code monté, rechargement (make dev)
 ├── .dockerignore
 ├── .env.example            # à copier en .env
 ├── requirements.txt
+├── requirements-dev.txt    # pytest (étape « test » du Dockerfile uniquement)
+├── pytest.ini
 ├── main.py                 # point d'entrée CLI
+├── docs/
+│   ├── SCRUM.md            # vision, backlog, sprints, définition de « terminé »
+│   └── SECURITE.md         # modèle de menaces, protections, vulnérabilités
+├── tests/                  # pytest : modules, API, sécurité (make test)
+├── scripts/
+│   ├── smoke_test.sh       # vérification de bout en bout sur la stack démarrée
+│   ├── lancer.sh           # démarre la stack et ouvre l'interface (make launch)
+│   ├── deployer.sh         # make deploy / rollback / versions
+│   ├── installer-raccourci.sh  # installation Windows : Bureau + menu Démarrer (make shortcut)
+│   ├── windows/TranscriptionVideo.hta  # écran de démarrage Windows (modèle)
+│   └── make_icons.py       # génère l'icône du logiciel (make icons)
 ├── media/                  # fichiers sources, monté en /media (ro)
 └── source/
     ├── config.py           # configuration (pydantic-settings)
@@ -734,7 +861,9 @@ transcription_video_audio/
     ├── api.py              # FastAPI, upload chunké, progression
     ├── tasks.py            # workers Celery
     └── static/
-        └── index.html      # interface web (page unique, sans build)
+        ├── index.html      # interface web (page unique, sans build)
+        ├── manifest.webmanifest  # nom et icônes de l'application
+        └── icon.ico, icon-*.png  # icône : onglet, raccourci, écran d'accueil
 ```
 
 ---
@@ -767,7 +896,47 @@ Soit **~2 h 30 pour une vidéo de 6 heures**. Repères indicatifs pour le reste 
 
 ## Tests
 
-### Vérification complète
+Deux niveaux, tous deux exécutés dans Docker :
+
+```bash
+make test       # tests automatisés : modules, API, sécurité (~10 s, sans GPU ni service)
+make test-all   # make test, puis la vérification de bout en bout ci-dessous
+```
+
+### Tests automatisés (pytest)
+
+`make test` construit l'étape `test` du Dockerfile (image de production
+inchangée) et lance `pytest` sur le dépôt monté en lecture seule. Les tests
+sont autonomes : SQLite remplace PostgreSQL, Celery, Whisper et Qdrant sont
+simulés ; seul **FFmpeg est réel**, sur des clips de quelques secondes générés
+à la volée — découpage, compression sous taille et extraction audio sont donc
+vérifiés sur de vrais fichiers.
+
+| Fichier | Couvre |
+|---|---|
+| `test_media.py` | ffprobe, exécution FFmpeg, extraction audio, parcours de dossiers |
+| `test_chunker.py` | plan de découpage, recouvrement, reprise |
+| `test_transcribe.py` | fusion des morceaux, cache, reprise, langue, mode par lots |
+| `test_export.py` | SRT, VTT, TXT, JSON, CSV, passages RAG et diapositives muettes |
+| `test_compress.py` | débits, plan de coupe, découpage sans ré-encodage, encodage sous taille |
+| `test_pipeline.py` | dossiers de sortie, enchaînement, progression |
+| `test_frames.py` | détection de scène, alignement image / parole, OCR indisponible |
+| `test_rag.py` | indexation, identifiants déterministes, recherche filtrée |
+| `test_config_db_tasks.py` | configuration, modèle de données, workers Celery |
+| `test_cli.py` | ligne de commande |
+| `test_api.py` | toutes les routes : jobs, upload chunké, zip, suppression, RAG |
+| `test_security.py` | protections et vulnérabilités connues — voir [docs/SECURITE.md](docs/SECURITE.md) |
+
+```bash
+make test ARGS="tests/test_api.py -v"             # un seul fichier
+make test ARGS="-k zip"                           # par mot-clé
+make test ARGS="--cov=source --cov-report=term"   # couverture
+```
+
+Résultat attendu : tout passe, sauf les tests `test_vuln*` affichés **`xfailed`** —
+ils décrivent des vulnérabilités connues, pas encore corrigées.
+
+### Vérification de bout en bout
 
 Un script parcourt toute la chaîne — services, CLI, workers, API, upload chunké —
 sur un clip généré à la volée, puis nettoie derrière lui :
@@ -840,7 +1009,15 @@ docker compose run --rm cli sh -c \
 | Modèle retéléchargé à chaque run | volume `models` non monté | vérifier `docker volume ls` et le montage `/models` |
 | Fichier introuvable dans le conteneur | chemin hôte au lieu du chemin conteneur | utiliser `/media/...`, pas `./media/...` |
 | Transcription dans une langue inattendue | `LANGUAGE` force une langue absente de la piste audio (doublage automatique) | `LANGUAGE=auto` ou `--lang auto` — la langue détectée est journalisée |
+| `required variable POSTGRES_PASSWORD is missing a value` | secret absent de `.env` | ajouter `POSTGRES_PASSWORD=…` ; sur une base existante, aussi `docker exec <conteneur postgres> psql -U transcription -c "ALTER USER transcription PASSWORD '…'"` |
+| `401 authentification requise` | `REQUIRE_TOKEN=true` et jeton absent ou changé | se reconnecter dans l'interface ; en ligne de commande, en-tête `Authorization: Bearer $TOKEN` |
+| `403 nom d'hôte non autorisé` | interface ouverte par une autre adresse que `localhost` (IP réseau, nom de machine) | utiliser `http://localhost:8100`, ou ajouter le nom à `ALLOWED_HOSTS` (avec `REQUIRE_TOKEN=true` si ouvert au réseau) |
 | Écriture refusée dans `/data` | UID différent sur un bind mount | `chown -R 1000:1000` du dossier côté hôte |
+| L'icône du raccourci reste blanche ou ancienne | cache d'icônes de Windows | relancer `make shortcut`, sinon se déconnecter / reconnecter à Windows |
+| Écran de démarrage : « Docker ne répond pas » | service Docker arrêté dans WSL | `sudo systemctl enable --now docker` |
+| Écran de démarrage bloqué ou en erreur | voir **Voir le détail** | journal : `%LOCALAPPDATA%\TranscriptionVideo\demarrage.log` |
+| L'interface s'ouvre dans un onglet et non dans une fenêtre | aucun navigateur Chromium trouvé | installer ou réparer Edge |
+| `cuInit(0) failed` ou `GPU access blocked by the operating system` dans le worker | accès GPU perdu par un conteneur resté démarré (fréquent sous WSL après une mise en veille) | `docker compose -f docker-compose.yml -f docker-compose.gpu.yml restart worker` |
 
 Diagnostic rapide :
 
@@ -862,3 +1039,15 @@ docker compose exec worker df -h /data
 - [ ] Stockage objet S3 / MinIO pour les fichiers sources
 - [ ] Image multi-arch (`linux/amd64`, `linux/arm64`) publiée sur GHCR
 - [ ] Manifests Kubernetes pour un déploiement multi-GPU
+
+Backlog détaillé et priorisé : [docs/SCRUM.md](docs/SCRUM.md).
+
+---
+
+## Documentation projet
+
+| Document | Contenu |
+|---|---|
+| [docs/SCRUM.md](docs/SCRUM.md) | vision produit, rôles, cérémonies, backlog, sprints, définition de « terminé » |
+| [docs/SECURITE.md](docs/SECURITE.md) | modèle de menaces, protections en place, vulnérabilités connues et plan de correction |
+| [docs/DEPLOIEMENT.md](docs/DEPLOIEMENT.md) | version déployée, mode développement, `make deploy` / `make rollback` |
