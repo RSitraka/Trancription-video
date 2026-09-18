@@ -1233,8 +1233,9 @@ async function loadSources() {
       + 'sur une vidéo terminée : son texte devient cherchable.';
 }
 
-$('searchForm').onsubmit = async (event) => {
-  event.preventDefault();
+$('searchForm').onsubmit = (event) => { event.preventDefault(); runSearch(); };
+
+async function runSearch() {
   const question = $('q').value.trim();
   if (question.length < 2 || searching) return;
   searching = true;
@@ -1254,7 +1255,7 @@ $('searchForm').onsubmit = async (event) => {
   } finally {
     searching = false;
   }
-};
+}
 
 function renderResults(hits, question) {
   if (!hits.length) {
@@ -1328,7 +1329,9 @@ function searchFromUrl() {
   if (!question) return;
   $('q').value = question;
   go('recherche');
-  $('searchForm').requestSubmit();
+  // Après le premier affichage : lancer la requête pendant le chargement
+  // empêchait la page de se stabiliser.
+  setTimeout(runSearch, 300);
 }
 
 autoLogin().then(() => {
