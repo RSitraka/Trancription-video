@@ -999,7 +999,7 @@ function renderJobs(jobs, force = false) {
         ${fileIcon(j.filename)}
         <div class="grow">
           <div class="name" title="${esc(j.folder ? j.folder + '/' + j.filename : j.filename)}">${j.folder ? `<span class="muted">${esc(j.folder)}/</span>` : ''}${esc(jobName(j))}</div>
-          <div class="meta">${renamed(j)}${info.meta}</div>
+          <div class="meta">${renamed(j)}${info.meta}${j.note ? ` · <span class="big">${esc(j.note)}</span>` : ''}</div>
           ${info.running && j.status !== 'queued' ? `<div class="bar"><i style="width:${info.percent}%"></i></div>` : ''}
           ${j.error ? `<details class="error" data-id="${j.id}" ${open.has(j.id) ? 'open' : ''}>
             <summary>${esc(j.error.split('\n')[0].slice(0, 140))}</summary><pre>${esc(j.error)}</pre></details>` : ''}

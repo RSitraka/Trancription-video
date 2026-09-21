@@ -81,5 +81,6 @@ def process_job(self, job_id: str) -> dict:
     outputs = [str(p) for p in result.outputs]
     # Le titre sert à retrouver les fichiers produits quand le nom du fichier
     # ne dit rien (source/titling.py).
-    _update(job_id, status="done", progress=1.0, outputs=outputs, title=result.title)
+    _update(job_id, status="done", progress=1.0, outputs=outputs, title=result.title,
+            note=result.note or None)
     return {"job_id": job_id, "outputs": outputs, "segments": result.segments}

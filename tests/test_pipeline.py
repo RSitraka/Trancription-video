@@ -101,3 +101,20 @@ def test_meaningful_file_name_is_untouched(clips, dirs, fake_transcription):
     result = pipeline.transcription(clips.heavy, formats=["srt"])
     assert result.title == "heavy"
     assert (dirs.out / "heavy" / "heavy.srt").is_file()
+
+
+@pytest.mark.ffmpeg
+def test_video_without_audio_is_compressed_not_failed(clips, dirs):
+    """Flux vidéo seul (YouTube « videoplayback », vidéo muette) : la
+    compression reste utile, l'échec serait une perte."""
+    result = pipeline.process(clips.silent, max_mb=500, formats=["srt"])
+
+    assert [p.suffix for p in result.outputs] == [".mp4"]        # pas de sous-titres
+    assert result.note == "aucune piste audio : compressée sans transcription"
+    assert (dirs.out / "silent" / "silent_compressed.mp4").is_file()
+
+
+@pytest.mark.ffmpeg
+def test_transcription_alone_says_why_it_cannot_run(clips):
+    with pytest.raises(ValueError, match="aucune piste audio"):
+        pipeline.transcription(clips.silent)

@@ -1058,6 +1058,7 @@ docker compose run --rm cli sh -c \
 | `No space left on device` | volume `data` saturé par les chunks | `DELETE_CHUNKS_AFTER=true`, `docker system prune --volumes` (⚠ efface les volumes non utilisés) |
 | Modèle retéléchargé à chaque run | volume `models` non monté | vérifier `docker volume ls` et le montage `/models` |
 | Fichier introuvable dans le conteneur | chemin hôte au lieu du chemin conteneur | utiliser `/media/...`, pas `./media/...` |
+| « aucune piste audio » sur un fichier vidéo | flux vidéo seul (téléchargement YouTube « videoplayback », DASH) ou vidéo muette | rien à transcrire ; en mode *transcrire + compresser*, la compression se fait quand même et le traitement l'indique. Pour la parole, retélécharger la vidéo avec sa piste audio |
 | Transcription dans une langue inattendue | `LANGUAGE` force une langue absente de la piste audio (doublage automatique) | `LANGUAGE=auto` ou `--lang auto` — la langue détectée est journalisée |
 | `required variable POSTGRES_PASSWORD is missing a value` | secret absent de `.env` | ajouter `POSTGRES_PASSWORD=…` ; sur une base existante, aussi `docker exec <conteneur postgres> psql -U transcription -c "ALTER USER transcription PASSWORD '…'"` |
 | `401 authentification requise` | `REQUIRE_TOKEN=true` et jeton absent ou changé | se reconnecter dans l'interface ; en ligne de commande, en-tête `Authorization: Bearer $TOKEN` |

@@ -23,6 +23,8 @@ ProgressHook = Callable[[str, float], None]
 class Result:
     source: Path
     outputs: list[Path] = field(default_factory=list)
+    # Ce qu'il faut signaler sans que ce soit un échec (vidéo muette…).
+    note: str = ""
     # Nom donné aux fichiers produits : celui du fichier s'il parle, sinon un
     # titre tiré de la transcription (source/titling.py).
     title: str = ""
@@ -92,6 +94,12 @@ def transcription(
     formats = formats or ["srt", "json"]
 
     info = media.probe(source)
+    if not info.has_audio:
+        raise ValueError(
+            f"« {source.name} » n'a aucune piste audio : rien à transcrire. "
+            "C'est le cas des vidéos téléchargées en flux séparés (YouTube « videoplayback ») "
+            "et des vidéos muettes ; la compression, elle, reste possible."
+        )
     result = Result(source=source, original_bytes=info.size)
 
     on_progress("extracting", 0.0)
@@ -179,7 +187,15 @@ def process(
     subdir: str | None = None,
     on_progress: ProgressHook = _noop,
 ) -> Result:
-    """Transcription puis compression, sur le même fichier source."""
+    """Transcription puis compression, sur le même fichier source.
+
+    Une vidéo sans piste audio (flux vidéo seul, vidéo muette) est simplement
+    compressée : mieux qu'un échec, puisque c'est la moitié utile du travail.
+    """
+    if not media.probe(source).has_audio:
+        log.warning("%s n'a aucune piste audio : compression seule", source.name)
+        return _compress_only(source, output_dir, target_gb, max_mb, split, subdir, on_progress)
+
     # La fin de la transcription n'est pas la fin du job : pas de « done » à mi-course.
     transcribed = transcription(
         source, output_dir=output_dir, language=language,
@@ -201,6 +217,16 @@ def process(
         original_bytes=transcribed.original_bytes,
         final_bytes=compressed.final_bytes,
     )
+
+
+def _compress_only(source, output_dir, target_gb, max_mb, split, subdir, on_progress) -> Result:
+    """Compression seule, quand il n'y a pas de parole à transcrire."""
+    result = compression(
+        source, output_dir=output_dir, target_gb=target_gb, max_mb=max_mb,
+        split=split, subdir=subdir, on_progress=on_progress,
+    )
+    result.note = "aucune piste audio : compressée sans transcription"
+    return result
 
 
 RUNNERS = {"transcribe": transcription, "compress": compression, "process": process}

@@ -124,3 +124,17 @@ def test_celery_is_configured_for_long_jobs():
     conf = tasks.celery_app.conf
     assert conf.task_acks_late and conf.worker_prefetch_multiplier == 1
     assert conf.broker_transport_options["visibility_timeout"] >= 7 * 86400
+
+
+def test_process_job_stores_title_and_note(session, dirs, monkeypatch, no_backend):
+    source = dirs.media / "VID_2026.mp4"
+    source.write_bytes(b"x")
+    monkeypatch.setitem(pipeline.RUNNERS, "process", lambda path, on_progress: Result(
+        path, outputs=[], title="Réunion budget", note="aucune piste audio : compressée"))
+    job = add_job(session, status="queued", mode="process", source_path=str(source))
+
+    assert run(job.id).successful()
+    session.expire_all()
+    stored = session.get(Job, job.id)
+    assert stored.title == "Réunion budget"
+    assert stored.note.startswith("aucune piste audio")
