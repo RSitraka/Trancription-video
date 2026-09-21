@@ -108,8 +108,11 @@ def transcription(
         on_progress=lambda p: on_progress("transcribing", p),
     )
 
-    # « VID_20260918.mp4 » ne dit rien : le contenu donne alors le nom.
-    result.title = titling.choose(source, segments)
+    # « VID_20260918.mp4 » ne dit rien : le contenu donne alors le nom. Sans
+    # parole exploitable, le texte affiché à l'écran est lu (OCR).
+    result.title = titling.choose(source, segments,
+                                  video=source if info.has_video else None,
+                                  duration=info.duration)
     output_dir = title_dir(base_output, source, subdir, result.title)
 
     captures: list = []
@@ -147,10 +150,11 @@ def compression(
     `title` vient de la transcription quand le nom du fichier ne dit rien.
     """
     settings.ensure_dirs()
-    title = title or titling.choose(source)
+    info = media.probe(source)
+    title = title or titling.choose(source, video=source if info.has_video else None,
+                                    duration=info.duration)
     output_dir = title_dir(output_dir or settings.output_dir, source, subdir, title)
 
-    info = media.probe(source)
     if not info.has_video and max_mb is None:
         raise ValueError(f"{source} ne contient pas de piste vidéo à compresser")
 

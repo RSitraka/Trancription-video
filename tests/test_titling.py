@@ -109,3 +109,81 @@ def test_title_is_usable_as_a_folder_name():
     title = titling.choose(Path("/media/VID_1.mp4"), segments)
     assert not set(title) & set('<>:"/\\|?*')
     assert title == title.strip() and not title.endswith(".")
+
+
+# --- Titre lu à l'écran (OCR) ------------------------------------------------
+
+def ecran(*lignes):
+    """Lignes lues sur une image : (texte, hauteur relative des caractères)."""
+    return [(texte, hauteur) for texte, hauteur in lignes]
+
+
+@pytest.fixture
+def images(monkeypatch):
+    """Remplace l'extraction d'images et l'OCR : une liste de lectures."""
+    def poser(*lectures):
+        pages = list(lectures)
+        monkeypatch.setattr(titling.subprocess, "run", lambda *a, **k: None)
+        monkeypatch.setattr(titling, "_read_image", lambda image: pages.pop(0) if pages else [])
+    return poser
+
+
+def test_screen_title_is_the_biggest_text(images):
+    """Le plus gros texte fait le titre, pas la phrase la plus longue."""
+    images(ecran(
+        ("This is a simple website for practicing the basics of JavaScript", 0.02),
+        ("Complete JavaScript Course", 0.09),
+        ("supersimple.dev", 0.03),
+    ))
+    assert titling.from_screen(Path("/media/x.mp4"), 600) == "Complete JavaScript Course"
+
+
+def test_screen_title_ignores_browser_and_short_noise(images):
+    images(ecran(("Console Elements Network", 0.12), ("ab cd", 0.11),
+                 ("Budget prévisionnel 2026", 0.08)))
+    assert titling.from_screen(Path("/media/x.mp4"), 600) == "Budget prévisionnel 2026"
+
+
+def test_screen_title_drops_ocr_artefacts_at_the_edges(images):
+    """« lia », « JS » d'un logo : bruit collé au titre."""
+    images(ecran(("lia JavaScript Course —", 0.10)))
+    assert titling.from_screen(Path("/media/x.mp4"), 600) == "JavaScript Course"
+
+
+def test_screen_falls_back_to_keywords(images):
+    """Aucune ligne assez longue pour faire un titre : les mots répétés servent."""
+    images(ecran(("budget", 0.05), ("cantine", 0.05)),
+           ecran(("cantine", 0.05), ("budget", 0.04)))
+    assert titling.from_screen(Path("/media/x.mp4"), 600) == "Budget, cantine"
+
+
+def test_screen_without_readable_text(images):
+    images(ecran(("", 0.1)))
+    assert titling.from_screen(Path("/media/x.mp4"), 600) == ""
+
+
+def test_metadata_title_wins_over_the_file_name(monkeypatch):
+    monkeypatch.setattr(titling, "from_metadata", lambda source: "Conseil du 12 mars")
+    assert titling.choose(Path("/media/VID_2026.mp4")) == "Conseil du 12 mars"
+
+
+def test_metadata_title_ignored_when_vague(monkeypatch, tmp_path):
+    sortie = type("R", (), {"stdout": '{"format": {"tags": {"title": "videoplayback"}}}'})
+    monkeypatch.setattr(titling.subprocess, "run", lambda *a, **k: sortie)
+    assert titling.from_metadata(tmp_path / "x.mp4") == ""
+
+
+def test_screen_is_the_last_resort(monkeypatch):
+    """L'OCR ne tourne que si le nom, les métadonnées et la parole échouent."""
+    appels = []
+    monkeypatch.setattr(titling, "from_metadata", lambda source: "")
+    monkeypatch.setattr(titling, "from_screen", lambda v, d=0: appels.append(v) or "Vu à l'écran")
+
+    segments = parle("Dans cette vidéo, on va voir comment installer Docker sous Windows.")
+    assert titling.choose(Path("/media/VID_1.mp4"), segments, video=Path("/media/VID_1.mp4")) \
+        == "Installer Docker sous Windows"
+    assert appels == []                                    # parole suffisante : pas d'OCR
+
+    assert titling.choose(Path("/media/VID_1.mp4"), [], video=Path("/media/VID_1.mp4")) \
+        == "Vu à l'écran"
+    assert appels == [Path("/media/VID_1.mp4")]

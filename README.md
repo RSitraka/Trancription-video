@@ -717,10 +717,19 @@ dossier de résultats tout aussi illisible. Le logiciel détecte ces noms
 (appareils photo, téléphones, applications de visio, horodatages, identifiants)
 et tire alors un **titre de la transcription** :
 
-- la phrase d'annonce si le locuteur en fait une : « Dans cette vidéo, on va voir
-  comment installer Docker sous Windows » → **« Installer Docker sous Windows »** ;
-- sinon les mots les plus présents au début : **« Budget, commune, cantine »** ;
-- sinon, faute de parole, le nom du fichier est gardé.
+1. **les métadonnées** du fichier (balise `title`), quand l'outil d'export l'a écrite ;
+2. **la parole** : la phrase d'annonce si le locuteur en fait une — « Dans cette
+   vidéo, on va voir comment installer Docker sous Windows » → **« Installer
+   Docker sous Windows »** — sinon les mots les plus présents au début ;
+3. **le texte affiché à l'écran**, lu sur quelques images (OCR). C'est le seul
+   recours pour une vidéo sans son : cours filmé, diaporama, capture d'écran.
+   Le **plus gros texte** l'emporte, car c'est presque toujours le titre — un
+   cours téléchargé sous le nom `videoplayback.mp4` devient
+   **« JavaScript Course »** en quelques secondes ;
+4. sinon, le nom du fichier est gardé : jamais de titre inventé.
+
+Chaque étape n'est tentée que si la précédente n'a rien donné : l'OCR, le seul
+coûteux, ne tourne que pour les vidéos sans parole exploitable.
 
 Le titre nomme le dossier, les sous-titres et les parties compressées :
 `output/Installer Docker sous Windows/Installer Docker sous Windows_compressed_1.mp4`.
