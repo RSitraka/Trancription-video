@@ -547,10 +547,10 @@ def get_archive(job_id: str) -> StreamingResponse:
         job = session.get(Job, job_id)
         if job is None:
             raise HTTPException(404, "job introuvable")
-        outputs, filename = list(job.outputs or []), job.filename
+        outputs, filename, title = list(job.outputs or []), job.filename, job.title
     root = settings.output_dir.resolve()
     files = [Path(o) for o in outputs if Path(o).resolve().is_relative_to(root)]
-    return _zip_response(Path(filename).stem, files)
+    return _zip_response(title or Path(filename).stem, files)
 
 
 @app.get("/jobs/{job_id}/result.{extension}")
@@ -663,14 +663,15 @@ def list_sources() -> list[str]:
         raise HTTPException(503, f"Qdrant indisponible : {error}") from error
 
 
-def _outputs_of(filename: str, subdir: str | None, known: list[str] | None = None) -> list[Path]:
+def _outputs_of(filename: str, subdir: str | None, known: list[str] | None = None,
+                title: str | None = None) -> list[Path]:
     """Fichiers produits pour une source (vidéos compressées et sous-titres),
     terminés ou non, limités au dossier de sortie.
 
     En cours de traitement, `outputs` est encore vide : les parties déjà écrites
     (`cours_compressed_3.mp4`, `….encours.mp4`) sont retrouvées par leur nom."""
     root = settings.output_dir.resolve()
-    base = Path(filename).stem
+    base = title or Path(filename).stem
     files = {Path(o).resolve() for o in known or []}
     stem = re.escape(base + "_compressed")
     # Fichiers finaux ou en cours d'écriture, et dossiers de travail cachés
@@ -690,7 +691,8 @@ def _outputs_of(filename: str, subdir: str | None, known: list[str] | None = Non
 
 
 def _produced_files(job: Job) -> list[Path]:
-    return _outputs_of(job.filename, (job.options or {}).get("subdir"), job.outputs)
+    return _outputs_of(job.filename, (job.options or {}).get("subdir"), job.outputs,
+                       title=job.title)
 
 
 def _remove(paths: list[Path]) -> None:
@@ -832,9 +834,14 @@ def delete_media(path: str = Query(...)) -> dict:
     sources = list(media.iter_media(target)) if target.is_dir() else [target]
 
     removed = 0
+    titles: dict[str, set[str]] = {}
     with SessionLocal() as session:
         jobs = session.query(Job).filter(Job.source_path.in_([str(f) for f in sources])).all()
         for job in jobs:
+            # Titre tiré du contenu : sans lui, les fichiers produits d'une vidéo
+            # au nom peu parlant resteraient sur le disque.
+            if job.title:
+                titles.setdefault(job.source_path, set()).add(job.title)
             if job.task_id and job.status not in ("done", "failed"):
                 celery_app.control.revoke(job.task_id, terminate=True, signal="SIGTERM")
             session.delete(job)
@@ -845,6 +852,8 @@ def delete_media(path: str = Query(...)) -> dict:
         subdir = str(source.parent.relative_to(media_root))
         subdir = None if subdir == "." else subdir
         produced = _outputs_of(source.name, subdir)
+        for title in titles.get(str(source), ()):
+            produced += _outputs_of(source.name, subdir, title=title)
         produced.append(settings.work_dir / (subdir or "") / source.stem)   # morceaux audio
         removed += sum(1 for p in produced if p.exists() and not p.name.startswith(".")
                        and p.is_file())

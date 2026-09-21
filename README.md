@@ -709,6 +709,27 @@ rechercher aussi bien ce qui a été dit que ce qui a été montré.
 
 ---
 
+## Titre des dossiers de sortie
+
+Un nom de fichier qui ne dit rien du contenu — `VID_20260918_141233.mp4`,
+`WhatsApp Video 2026-09-18 at 14.12.33.mp4`, `enregistrement (2).mp4` — donne un
+dossier de résultats tout aussi illisible. Le logiciel détecte ces noms
+(appareils photo, téléphones, applications de visio, horodatages, identifiants)
+et tire alors un **titre de la transcription** :
+
+- la phrase d'annonce si le locuteur en fait une : « Dans cette vidéo, on va voir
+  comment installer Docker sous Windows » → **« Installer Docker sous Windows »** ;
+- sinon les mots les plus présents au début : **« Budget, commune, cantine »** ;
+- sinon, faute de parole, le nom du fichier est gardé.
+
+Le titre nomme le dossier, les sous-titres et les parties compressées :
+`output/Installer Docker sous Windows/Installer Docker sous Windows_compressed_1.mp4`.
+Il est mémorisé avec le traitement, et l'interface affiche « titré d'après le
+contenu » à côté du nom d'origine.
+
+**Un nom de fichier déjà parlant n'est jamais réécrit** : `Réunion budget 2026.mp4`
+reste tel quel, casse comprise. Détails : `source/titling.py`.
+
 ## Formats de sortie
 
 | Format | Contenu |

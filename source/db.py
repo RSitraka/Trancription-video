@@ -52,6 +52,8 @@ class Job(Base):
     outputs: Mapped[list] = mapped_column(JSON, default=list)
     error: Mapped[str | None] = mapped_column(String(4096), nullable=True)
     task_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    # Nom des fichiers produits : celui du fichier, ou un titre tiré du contenu.
+    title: Mapped[str | None] = mapped_column(String(512), nullable=True)
     indexed: Mapped[str | None] = mapped_column(String(256), nullable=True)
 
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
@@ -71,6 +73,7 @@ class Job(Base):
             "status": self.status,
             "progress": round(self.progress, 3),
             "mode": self.mode,
+            "title": self.title,
             "outputs": self.outputs or [],
             "indexed": self.indexed,
             "error": self.error,
@@ -100,4 +103,7 @@ def init_db() -> None:
         )
         connection.execute(
             text("ALTER TABLE jobs ADD COLUMN IF NOT EXISTS indexed VARCHAR(256)")
+        )
+        connection.execute(
+            text("ALTER TABLE jobs ADD COLUMN IF NOT EXISTS title VARCHAR(512)")
         )

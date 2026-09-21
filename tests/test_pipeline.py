@@ -76,3 +76,28 @@ def test_process_progress_is_monotonic(clips, dirs, fake_transcription):
     # « done » n'est annoncé qu'à la toute fin, pas après la transcription.
     assert [s for s, _ in progress].count("done") == 1 and progress[-1] == ("done", 1.0)
     assert result.ratio == pytest.approx(1.0)                  # copie : déjà sous 500 Mo
+
+
+@pytest.mark.ffmpeg
+def test_vague_file_name_is_titled_from_the_content(clips, dirs, monkeypatch, tmp_path):
+    """« VID_20260918.mp4 » : dossier et fichiers prennent le titre du contenu."""
+    source = tmp_path / "VID_20260918.mp4"
+    source.write_bytes(clips.video.read_bytes())
+    monkeypatch.setattr(transcribe, "transcribe_media", lambda *a, **k: [
+        Segment(0, 4, "Dans cette vidéo, on va voir comment installer Docker sous Windows.")])
+
+    result = pipeline.process(source, max_mb=500, formats=["srt"])
+
+    assert result.title == "Installer Docker sous Windows"
+    folder = dirs.out / result.title
+    assert sorted(p.name for p in folder.iterdir()) == [
+        "Installer Docker sous Windows.srt", "Installer Docker sous Windows_compressed.mp4"]
+    assert all(Path(o).parent == folder.resolve() for o in result.outputs)
+
+
+@pytest.mark.ffmpeg
+def test_meaningful_file_name_is_untouched(clips, dirs, fake_transcription):
+    """Un nom choisi par l'utilisateur ne doit pas être réécrit."""
+    result = pipeline.transcription(clips.heavy, formats=["srt"])
+    assert result.title == "heavy"
+    assert (dirs.out / "heavy" / "heavy.srt").is_file()

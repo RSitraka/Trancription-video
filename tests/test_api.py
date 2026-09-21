@@ -371,3 +371,31 @@ def test_part_model_tracks_upload(client, session):
     job = client.post("/jobs", json={"filename": "a.mp4", "size": 2}).json()
     client.put(f"/jobs/{job['id']}/parts/1", content=b"ab")
     assert session.query(Part).filter_by(job_id=job["id"]).one().size == 2
+
+
+def test_outputs_are_found_through_the_title(client, session, dirs, celery):
+    """Fichiers rangés sous le titre tiré du contenu : suppression et zip suivent."""
+    folder = dirs.out / "Installer Docker sous Windows"
+    srt = write(folder / "Installer Docker sous Windows.srt", b"1")
+    part = write(folder / "Installer Docker sous Windows_compressed.mp4", b"video")
+    job = add_job(session, filename="VID_20260918.mp4",
+                  title="Installer Docker sous Windows", outputs=[str(srt)])
+
+    listed = client.get("/jobs").json()[0]
+    assert listed["title"] == "Installer Docker sous Windows"
+    assert zip_names(client.get(f"/jobs/{job.id}/archive.zip")) == [
+        "Installer Docker sous Windows/Installer Docker sous Windows.srt"]
+
+    # La vidéo compressée n'est pas dans « outputs » : elle est retrouvée par le titre.
+    assert client.delete(f"/jobs/{job.id}", params={"files": True}).json()["files_deleted"] == 2
+    assert not srt.exists() and not part.exists()
+
+
+def test_delete_media_removes_titled_outputs(client, session, dirs):
+    source = write(dirs.media / "VID_20260918.mp4")
+    titled = write(dirs.out / "Réunion budget" / "Réunion budget_compressed.mp4", b"v")
+    add_job(session, filename="VID_20260918.mp4", source_path=str(source),
+            title="Réunion budget")
+
+    assert client.delete("/media", params={"path": str(source)}).json()["files_deleted"] == 1
+    assert not titled.exists() and not source.exists()
