@@ -637,3 +637,13 @@ def test_ui_exposes_rag_search_and_indexing():
 def test_ui_search_can_be_opened_from_url():
     html = (ROOT / "source" / "static" / "index.html").read_text(encoding="utf-8")
     assert "searchFromUrl" in html and "URLSearchParams(location.search)" in html
+
+
+def test_network_access_script_requires_token_and_firewall():
+    """Ouvrir l'API au réseau reste une action explicite et réversible."""
+    script = (ROOT / "scripts" / "windows" / "acces-reseau.ps1").read_text(encoding="utf-8")
+    assert "New-NetFirewallRule" in script and "portproxy" in script
+    assert "-Retirer" in script                                        # refermable
+    readme = (ROOT / "README.md").read_text(encoding="utf-8")
+    exposition = readme[readme.index("### Accès depuis un autre PC"):][:1200]
+    assert "REQUIRE_TOKEN=true" in exposition and "ALLOWED_HOSTS" in exposition

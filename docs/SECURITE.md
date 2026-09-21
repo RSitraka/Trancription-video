@@ -259,6 +259,22 @@ toutes les routes protégées.
 `test_generated_token_is_persistent_and_private`, `test_ui_asks_for_login_on_401`,
 `test_ui_auto_login_clears_token_from_address_bar`.
 
+### SEC-15 — Accès réseau : jeton obligatoire, hôtes déclarés
+
+Ouvrir l'API au réseau (`BIND_ADDRESS=0.0.0.0`) impose :
+
+- `REQUIRE_TOKEN=true` — sans quoi n'importe quelle machine du réseau pourrait
+  supprimer les vidéos (SEC-10) ;
+- l'IP et le nom du serveur dans `ALLOWED_HOSTS` — toute autre valeur de `Host`
+  reste refusée (SEC-14), ce qui conserve la protection contre le DNS rebinding ;
+- sous WSL, une redirection Windows et une règle de pare-feu explicites
+  (`scripts/windows/acces-reseau.ps1`), donc une ouverture consciente et
+  réversible (`/retirer`).
+
+**Limite acceptée** : le trafic est en clair (HTTP), jeton compris. À réserver à
+un réseau de confiance ; pour un usage plus large, placer un reverse proxy TLS
+devant l'API (VULN-03, §6).
+
 ### SEC-14 — Mode local sans connexion (défaut)
 
 Choix du 17/09/2026 : pas de connexion depuis le poste lui-même. Cela reste sûr

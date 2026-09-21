@@ -310,6 +310,25 @@ les traitements en cours et la dernière actualisation.
 PC (`127.0.0.1`), elle ne répond qu'aux adresses `localhost` / `127.0.0.1`, et
 refuse toute requête émise par un autre site web ouvert dans le navigateur.
 
+### Accès depuis un autre PC du réseau
+
+```bash
+# .env
+BIND_ADDRESS=0.0.0.0
+REQUIRE_TOKEN=true                                   # obligatoire hors de cette machine
+ALLOWED_HOSTS=localhost,127.0.0.1,::1,192.168.1.10,MON-SERVEUR   # IP et nom du serveur
+```
+
+puis `make up`. Sous WSL, le port n'existe que dans la machine virtuelle : une
+redirection Windows et une règle de pare-feu sont nécessaires, à installer une
+seule fois en administrateur —
+`%LOCALAPPDATA%\TranscriptionVideo\acces-reseau.cmd` (posé par `make shortcut`,
+source : `scripts/windows/`). Pour tout refermer : le même script avec `/retirer`.
+
+L'interface s'ouvre alors sur `http://<ip-du-serveur>:8100` et demande le jeton
+(`API_TOKEN` de `.env`) une fois par navigateur. Le trafic n'est pas chiffré :
+à réserver à un réseau de confiance, sinon passer par un reverse proxy TLS.
+
 Pour ouvrir l'accès au réseau (`BIND_ADDRESS=0.0.0.0`), activer d'abord le jeton :
 `REQUIRE_TOKEN=true` dans `.env`, et ajouter le nom de la machine à
 `ALLOWED_HOSTS`. L'interface demande alors le jeton (`API_TOKEN`) une fois par

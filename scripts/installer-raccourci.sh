@@ -20,6 +20,8 @@ DEST=$(ps '$env:LOCALAPPDATA')'\TranscriptionVideo'
 ps "New-Item -ItemType Directory -Force -Path '$DEST' | Out-Null"
 DEST_WSL=$(wslpath "$DEST")
 cp source/static/icon.ico source/static/icon-180.png "$DEST_WSL/"
+# Ouverture de l'accès réseau (à lancer en administrateur, une seule fois).
+cp scripts/windows/acces-reseau.ps1 scripts/windows/acces-reseau.cmd "$DEST_WSL/"
 
 # Écran de démarrage : modèle complété, en UTF-8 avec BOM pour mshta.
 escape() { printf '%s' "$1" | sed -e 's/[\\&|]/\\&/g'; }
@@ -52,3 +54,4 @@ ps 'ie4uinit.exe -show' >/dev/null 2>&1 || true
 
 echo "Installé dans : $DEST"
 echo "  WSL : $WSL_DISTRO_NAME, dépôt $PWD"
+echo "  Accès réseau (facultatif, en administrateur) : $DEST\\acces-reseau.cmd"
