@@ -6,6 +6,7 @@ Point d'entrée commun à la CLI (`main.py`) et aux workers Celery (`tasks.py`).
 from __future__ import annotations
 
 import logging
+import re
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable
@@ -153,12 +154,42 @@ def transcription(
     return result
 
 
+# Mots-outils les plus courants : de quoi reconnaître la langue d'un texte
+# quand Whisper ne l'a pas notée (transcription reprise d'un ancien cache).
+FUNCTION_WORDS = {
+    "fr": {"le", "la", "les", "de", "des", "et", "est", "un", "une", "que", "qui", "pour",
+           "pas", "dans", "ce", "vous", "nous", "on", "avec", "sur", "je", "c'est"},
+    "en": {"the", "and", "is", "of", "to", "in", "that", "it", "you", "for", "this",
+           "with", "are", "be", "on", "not", "have", "we", "can", "your"},
+    "es": {"el", "los", "las", "y", "en", "una", "es", "por", "con", "para", "no",
+           "se", "lo", "del", "como", "pero"},
+    "de": {"der", "die", "das", "und", "ist", "ich", "nicht", "mit", "sie", "es", "ein",
+           "eine", "zu", "den", "auf", "wir"},
+    "it": {"il", "di", "che", "non", "per", "sono", "gli", "della", "questo", "anche",
+           "ma", "come", "nel", "alla"},
+    "pt": {"o", "os", "não", "um", "uma", "com", "é", "do", "da", "em", "para", "você",
+           "mas", "isso"},
+}
+
+
+def _guess_language(segments: list) -> str | None:
+    """Langue d'un texte d'après ses mots-outils ; None si rien de net."""
+    words = re.findall(r"[\w']+", " ".join(s.text for s in segments[:200]).lower())
+    scores = {lang: sum(w in vocab for w in words) for lang, vocab in FUNCTION_WORDS.items()}
+    ranked = sorted(scores.items(), key=lambda item: item[1], reverse=True)
+    (best, top), (_, second) = ranked[0], ranked[1]
+    return best if top >= 3 and top >= 1.5 * second else None
+
+
 def _spoken_language(requested: str | None, segments: list) -> str | None:
-    """Langue parlée : celle demandée, sinon la plus fréquente parmi les segments."""
+    """Langue parlée : celle demandée, sinon celle détectée par Whisper, sinon
+    celle reconnue dans le texte."""
     if requested and requested not in ("auto", ""):
         return requested
     detected = [s.lang for s in segments if getattr(s, "lang", None)]
-    return max(set(detected), key=detected.count) if detected else None
+    if detected:
+        return max(set(detected), key=detected.count)
+    return _guess_language(segments)
 
 
 def compression(

@@ -163,3 +163,17 @@ def test_spoken_language_detection():
     assert pipeline._spoken_language(None, segments) == "en"
     assert pipeline._spoken_language("fr", segments) == "fr"              # demandée : prioritaire
     assert pipeline._spoken_language("auto", [Segment(0, 1, "x")]) is None
+
+
+@pytest.mark.parametrize("texte, langue", [
+    ("What is PeerTube? PeerTube is an open-source video platform. You can watch and "
+     "comment on videos, and it is free for you and your friends.", "en"),
+    ("Dans cette vidéo, on va voir comment créer un agent pour vous et c'est simple, "
+     "avec des outils que nous utilisons tous les jours.", "fr"),
+    ("En este vídeo vamos a ver cómo crear un agente con las herramientas para el "
+     "trabajo, pero no es difícil y se lo explico.", "es"),
+    ("ok", None),
+])
+def test_language_guessed_from_text(texte, langue):
+    """Filet de sécurité : transcription reprise d'un cache sans langue notée."""
+    assert pipeline._spoken_language("auto", [Segment(0, 1, texte)]) == langue
