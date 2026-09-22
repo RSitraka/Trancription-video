@@ -15,6 +15,7 @@ Mesuré sur RTX 3060 : 4 phrases en ~1 s, première phrase comprise.
 from __future__ import annotations
 
 import logging
+import re
 from dataclasses import replace
 from typing import Callable, Sequence
 
@@ -90,8 +91,26 @@ def translate_texts(texts: Sequence[str], source: str, target: str,
     return translated
 
 
+# Fin de phrase : ponctuation forte suivie d'un espace.
+SENTENCE_END = re.compile(r"(?<=[.!?…])\s+")
+
+
 def translate_segments(segments: list, source: str, target: str,
                        on_progress: Progress = None) -> list:
-    """Mêmes segments, mêmes horodatages, texte traduit."""
-    texts = translate_texts([s.text for s in segments], source, target, on_progress)
-    return [replace(s, text=text or s.text) for s, text in zip(segments, texts)]
+    """Mêmes segments, mêmes horodatages, texte traduit.
+
+    Un segment Whisper dure jusqu'à 30 s : traduit d'un bloc, le modèle en
+    saute parfois une phrase (« What is PeerTube? » disparaissait en tête).
+    Chaque segment est donc traduit **phrase par phrase**, puis recollé."""
+    sentences, owners = [], []
+    for index, segment in enumerate(segments):
+        for sentence in SENTENCE_END.split(segment.text.strip()):
+            if sentence:
+                sentences.append(sentence)
+                owners.append(index)
+    translated = translate_texts(sentences, source, target, on_progress)
+
+    texts: list[list[str]] = [[] for _ in segments]
+    for owner, text in zip(owners, translated):
+        texts[owner].append(text)
+    return [replace(s, text=" ".join(parts) or s.text) for s, parts in zip(segments, texts)]

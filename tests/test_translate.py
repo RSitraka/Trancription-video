@@ -75,3 +75,16 @@ def test_default_model_is_mit_licensed():
 
     assert "m2m100" in Settings.model_fields["translation_model"].default
     assert str(Settings.model_fields["translation_cache_dir"].default).startswith("/models/")
+
+
+def test_long_segments_are_translated_sentence_by_sentence(modele):
+    """D'un bloc, le modèle sautait parfois une phrase : on traduit par phrase."""
+    segments = [Segment(0, 30, "What is PeerTube? It is a platform. Try it!"),
+                Segment(30, 40, "Short one")]
+    first, second = translate.translate_segments(segments, "en", "fr")
+    [(lots, _)] = modele.lots
+    assert [lot[1:-1] for lot in lots] == [
+        ["What", "is", "PeerTube?"], ["It", "is", "a", "platform."], ["Try", "it!"],
+        ["Short", "one"]]
+    assert first.text == "fr:What fr:is fr:PeerTube? fr:It fr:is fr:a fr:platform. fr:Try fr:it!"
+    assert (first.start, first.end, second.text) == (0, 30, "fr:Short fr:one")
