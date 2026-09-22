@@ -492,3 +492,12 @@ def test_url_cannot_be_smuggled_in_options(client, dirs, session, probe_ok):
     source = write(dirs.media / "cours.mp4")
     client.post("/jobs", json={"path": str(source), "options": {"url": "http://10.0.0.5/"}})
     assert "url" not in session.query(Job).one().options
+
+
+def test_original_subtitles_are_grouped_and_deleted_with_the_video(client, session, dirs):
+    dossier = dirs.out / "Cours"
+    for nom in ("Cours.srt", "Cours.en.srt", "Cours_compressed.mp4"):
+        write(dossier / nom)
+    groupes = client.get("/outputs").json()
+    assert [(g["base"], len(g["files"])) for g in groupes] == [("Cours", 3)]
+    assert client.delete("/outputs", params={"base": "Cours"}).json()["files_deleted"] == 3

@@ -29,7 +29,9 @@ def write(
     for fmt in formats:
         if fmt not in FORMATS:
             raise ValueError(f"format inconnu : {fmt} (attendus : {', '.join(FORMATS)})")
-        path = destination.with_suffix(SUFFIXES.get(fmt, f".{fmt}"))
+        # Ajout, pas remplacement : « Node.js tutorial » deviendrait sinon
+        # « Node.srt », et « titre.en » (sous-titres d'origine) « titre.srt ».
+        path = destination.with_name(destination.name + SUFFIXES.get(fmt, f".{fmt}"))
         writer = globals()[f"_write_{fmt}"]
         if fmt in ("json", "rag"):
             writer(segments, path, frames or [])

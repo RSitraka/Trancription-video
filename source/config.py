@@ -83,6 +83,11 @@ class Settings(BaseSettings):
     # le retélécharger.
     embedding_cache_dir: Path = Path("/models/fastembed")
 
+    # --- Traduction des sous-titres (source/translate.py) ---
+    # M2M100 1,2 Md, licence MIT ; ~1,2 Go dans le volume « models ».
+    translation_model: str = "jncraton/m2m100_1.2B-ct2-int8"
+    translation_cache_dir: Path = Path("/models/traduction")
+
     @property
     def sqlalchemy_url(self) -> str:
         """SQLAlchemy exige le driver explicite ; psycopg3 ici."""

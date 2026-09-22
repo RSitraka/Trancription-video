@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Callable
 
 from source import compress as compress_module
-from source import export, media, titling, transcribe
+from source import export, media, titling, transcribe, translate
 from source.config import settings
 
 log = logging.getLogger(__name__)
@@ -78,9 +78,15 @@ def transcription(
     formats: list[str] | None = None,
     ocr: bool | None = None,
     subdir: str | None = None,
+    subtitle_language: str | None = None,
     on_progress: ProgressHook = _noop,
 ) -> Result:
     """Vidéo/audio → fichiers de sous-titres horodatés.
+
+    `language` est la langue **parlée** (« auto » : détectée). `subtitle_language`
+    est celle des sous-titres voulus : si elle diffère, le texte est traduit
+    (horodatages inchangés) et les sous-titres d'origine sont gardés à côté,
+    sous le nom `<titre>.<langue>.srt`.
 
     Les sous-titres vont dans le dossier au nom de la vidéo, à côté des parties
     compressées ; `subdir` évite que deux « intro.mp4 » de dossiers différents
@@ -108,6 +114,16 @@ def transcription(
         on_progress=lambda p: on_progress("transcribing", p),
     )
 
+    spoken = _spoken_language(language, segments)
+    target = subtitle_language if subtitle_language not in (None, "", "same", "auto") else None
+    original: list = []
+    if target and spoken and target != spoken and segments:
+        log.info("Traduction des sous-titres : %s → %s", spoken, target)
+        on_progress("translating", 0.0)
+        original = segments
+        segments = translate.translate_segments(
+            segments, spoken, target, on_progress=lambda p: on_progress("translating", p))
+
     # « VID_20260918.mp4 » ne dit rien : le contenu donne alors le nom. Sans
     # parole exploitable, le texte affiché à l'écran est lu (OCR).
     result.title = titling.choose(source, segments,
@@ -127,10 +143,22 @@ def transcription(
     result.outputs = export.write(
         segments, output_dir / result.title, formats, frames=captures
     )
+    if original:
+        # Sous-titres dans la langue parlée, à côté de la traduction.
+        result.outputs += export.write(original, output_dir / f"{result.title}.{spoken}", ["srt"])
+        result.note = f"sous-titres traduits : {spoken} → {target}"
     on_progress("done", 1.0)
 
     log.info("%d segments écrits dans %s", len(segments), output_dir)
     return result
+
+
+def _spoken_language(requested: str | None, segments: list) -> str | None:
+    """Langue parlée : celle demandée, sinon la plus fréquente parmi les segments."""
+    if requested and requested not in ("auto", ""):
+        return requested
+    detected = [s.lang for s in segments if getattr(s, "lang", None)]
+    return max(set(detected), key=detected.count) if detected else None
 
 
 def compression(
@@ -189,6 +217,7 @@ def process(
     max_mb: float | None = None,
     split: bool = True,
     subdir: str | None = None,
+    subtitle_language: str | None = None,
     on_progress: ProgressHook = _noop,
 ) -> Result:
     """Transcription puis compression, sur le même fichier source.
@@ -203,7 +232,7 @@ def process(
     # La fin de la transcription n'est pas la fin du job : pas de « done » à mi-course.
     transcribed = transcription(
         source, output_dir=output_dir, language=language,
-        formats=formats, ocr=ocr, subdir=subdir,
+        formats=formats, ocr=ocr, subdir=subdir, subtitle_language=subtitle_language,
         on_progress=lambda stage, p: on_progress(
             "compressing" if stage == "done" else stage, p * 0.5),
     )
@@ -217,6 +246,7 @@ def process(
         source=source,
         outputs=[*transcribed.outputs, *compressed.outputs],
         title=transcribed.title,
+        note=transcribed.note,
         segments=transcribed.segments,
         original_bytes=transcribed.original_bytes,
         final_bytes=compressed.final_bytes,

@@ -788,6 +788,29 @@ interne (`127.0.0.1`, `192.168.x.x`, services Docker) est refusé, pour qu'on ne
 puisse pas s'en servir pour lire des services non exposés (voir SEC-16 dans
 `docs/SECURITE.md`).
 
+## Langue parlée et langue des sous-titres
+
+Deux réglages distincts, page **Fichiers à traiter** :
+
+| Réglage | Choix | Rôle |
+|---|---|---|
+| **Langue parlée** | Détecter (défaut), Français, Anglais | indique à Whisper ce qu'il entend ; « Détecter » le laisse reconnaître la langue |
+| **Sous-titres en** | langue d'origine (défaut), français, anglais | si elle diffère de la langue parlée, les sous-titres sont **traduits** |
+
+Exemple : une vidéo en anglais, sous-titres en français →
+`Titre.srt` (français, horodatages identiques) **et** `Titre.en.srt`
+(l'original anglais, gardé à côté). La recherche porte sur le texte traduit.
+
+Whisper ne sait traduire que vers l'anglais : la traduction utilise donc
+**M2M100** (Meta, 100 langues dans tous les sens, **licence MIT** — usage
+commercial permis, contrairement à NLLB-200 qui est en CC-BY-NC). Version
+CTranslate2 quantifiée, sur la carte graphique : environ 1 s pour 4 phrases.
+Le modèle (~1,2 Go) est téléchargé une fois dans le volume `models`
+(`/models/traduction`). API : option `subtitle_language` d'un job.
+
+Ne pas forcer « Français » comme langue parlée pour une vidéo anglaise :
+Whisper produirait une transcription fausse. Laisser « Détecter ».
+
 ## Titre des dossiers de sortie
 
 Un nom de fichier qui ne dit rien du contenu — `VID_20260918_141233.mp4`,

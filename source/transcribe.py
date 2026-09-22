@@ -25,6 +25,8 @@ class Segment:
     confidence: float | None = None
     ocr: list[str] = field(default_factory=list)
     frame: str | None = None
+    # Langue détectée par Whisper : sert à traduire les sous-titres.
+    lang: str | None = None
 
     def shifted(self, offset: float) -> "Segment":
         return Segment(
@@ -34,6 +36,7 @@ class Segment:
             confidence=self.confidence,
             ocr=list(self.ocr),
             frame=self.frame,
+            lang=self.lang,
         )
 
 
@@ -101,6 +104,7 @@ def transcribe_file(path: Path, language: str | None = None) -> list[Segment]:
             end=s.end,
             text=s.text.strip(),
             confidence=getattr(s, "avg_logprob", None),
+            lang=requested or getattr(info, "language", None),
         )
         for s in segments
         if s.text.strip()

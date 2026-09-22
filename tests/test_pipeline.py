@@ -118,3 +118,48 @@ def test_video_without_audio_is_compressed_not_failed(clips, dirs):
 def test_transcription_alone_says_why_it_cannot_run(clips):
     with pytest.raises(ValueError, match="aucune piste audio"):
         pipeline.transcription(clips.silent)
+
+
+@pytest.mark.ffmpeg
+def test_english_video_with_french_subtitles(clips, dirs, monkeypatch):
+    """Vidéo anglaise, sous-titres voulus en français : traduction, et
+    l'original est gardé à côté sous « titre.en.srt »."""
+    from source import translate
+
+    monkeypatch.setattr(transcribe, "transcribe_media", lambda *a, **k: [
+        Segment(0, 2, "Hello everyone", lang="en"), Segment(2, 4, "Let's start", lang="en")])
+    monkeypatch.setattr(translate, "translate_segments", lambda segs, src, dst, on_progress=None: [
+        Segment(s.start, s.end, f"[{src}→{dst}] {s.text}", lang=s.lang) for s in segs])
+    stades = []
+
+    result = pipeline.transcription(clips.heavy, language="auto", subtitle_language="fr",
+                                    formats=["srt"], on_progress=lambda st, p: stades.append(st))
+
+    dossier = dirs.out / "heavy"
+    assert sorted(p.name for p in result.outputs) == ["heavy.en.srt", "heavy.srt"]
+    assert "[en→fr] Hello everyone" in (dossier / "heavy.srt").read_text()
+    assert "Hello everyone" in (dossier / "heavy.en.srt").read_text()
+    assert "[en" not in (dossier / "heavy.en.srt").read_text()
+    assert "translating" in stades
+    assert result.note == "sous-titres traduits : en → fr"
+
+
+@pytest.mark.ffmpeg
+def test_no_translation_when_languages_match(clips, dirs, monkeypatch):
+    from source import translate
+
+    monkeypatch.setattr(transcribe, "transcribe_media", lambda *a, **k: [
+        Segment(0, 2, "Bonjour", lang="fr")])
+    monkeypatch.setattr(translate, "translate_segments",
+                        lambda *a, **k: pytest.fail("traduction inutile"))
+    result = pipeline.transcription(clips.heavy, subtitle_language="fr", formats=["srt"])
+    assert [p.name for p in result.outputs] == ["heavy.srt"] and not result.note
+
+
+def test_spoken_language_detection():
+    segments = [Segment(0, 1, "a", lang="en"), Segment(1, 2, "b", lang="en"),
+                Segment(2, 3, "c", lang="fr")]
+    assert pipeline._spoken_language("auto", segments) == "en"
+    assert pipeline._spoken_language(None, segments) == "en"
+    assert pipeline._spoken_language("fr", segments) == "fr"              # demandée : prioritaire
+    assert pipeline._spoken_language("auto", [Segment(0, 1, "x")]) is None

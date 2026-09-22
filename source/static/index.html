@@ -330,12 +330,19 @@
       <div class="card">
         <div class="card-head"><h2>Options de traitement</h2></div>
         <div class="settings">
-          <div class="field">Langue de la vidéo
-            <div class="seg" id="lang" role="group" aria-label="Langue de la vidéo">
-              <button type="button" data-lang="fr" aria-pressed="true">Français</button>
+          <div class="field">Langue parlée
+            <div class="seg" id="lang" role="group" aria-label="Langue parlée dans la vidéo">
+              <button type="button" data-lang="auto" aria-pressed="true" title="Whisper reconnaît la langue">Détecter</button>
+              <button type="button" data-lang="fr" aria-pressed="false">Français</button>
               <button type="button" data-lang="en" aria-pressed="false">Anglais</button>
             </div>
           </div>
+          <label class="field">Sous-titres en
+            <select id="subLang">
+              <option value="">langue d'origine</option>
+              <option value="fr">français</option>
+              <option value="en">anglais</option>
+            </select></label>
           <label class="field">Taille maximale par fichier
             <input type="number" id="maxMb" min="10" step="10" value="300"> Mo</label>
           <label class="check"><input type="checkbox" id="split" checked>
@@ -560,10 +567,10 @@ const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) =>
 const ico = (name) => `<svg class="i" aria-hidden="true"><use href="#i-${name}"/></svg>`;
 const plural = (n, word, suffix = 's') => `${n} ${word}${n > 1 ? suffix : ''}`;
 
-const ACTIVE = ['queued', 'downloading', 'running', 'extracting', 'transcribing', 'ocr', 'compressing', 'uploading'];
+const ACTIVE = ['queued', 'downloading', 'running', 'extracting', 'transcribing', 'translating', 'ocr', 'compressing', 'uploading'];
 const STATUS = {
   uploading: 'envoi', queued: 'en file', downloading: 'téléchargement', running: 'démarrage', compressing: 'compression',
-  extracting: 'analyse', transcribing: 'transcription', ocr: 'images', done: 'terminé', failed: 'échec',
+  extracting: 'analyse', transcribing: 'transcription', translating: 'traduction', ocr: 'images', done: 'terminé', failed: 'échec',
 };
 const AUDIO = /\.(mp3|wav|m4a|flac|ogg|opus|aac|wma|aiff?|amr|mka|weba)$/i;
 
@@ -688,9 +695,12 @@ showNotifyState();
 
 // --- Options de traitement (mémorisées dans le navigateur) ------------------
 const maxMb = () => Number($('maxMb').value) || 0;
-let language = 'fr';
+// Langue parlée (« auto » : détectée par Whisper) et langue des sous-titres
+// (vide : celle d'origine ; sinon le texte est traduit).
+let language = 'auto';
+const LANG_NAMES = { auto: 'langue détectée', fr: 'français', en: 'anglais' };
 function setLanguage(value) {
-  language = value === 'en' ? 'en' : 'fr';
+  language = ['auto', 'fr', 'en'].includes(value) ? value : 'auto';
   $('lang').querySelectorAll('button').forEach((b) => b.setAttribute('aria-pressed', b.dataset.lang === language));
 }
 try {
@@ -698,23 +708,33 @@ try {
   if (saved.maxMb) $('maxMb').value = saved.maxMb;
   if (saved.split === false) $('split').checked = false;
   setLanguage(saved.language);
+  if (saved.subtitles !== undefined) $('subLang').value = saved.subtitles;
 } catch {}
 function onSettings() {
-  try { localStorage.setItem('compression', JSON.stringify({ maxMb: maxMb(), split: $('split').checked, language })); } catch {}
-  $('splitHint').textContent = $('split').checked
-    ? `Chaque vidéo est transcrite puis compressée. Une vidéo longue devient plusieurs fichiers de ${maxMb()} Mo maximum, en gardant une image lisible.`
-    : `Chaque vidéo est transcrite puis compressée en un seul fichier de ${maxMb()} Mo : une vidéo très longue sera fortement dégradée, ou refusée.`;
+  try {
+    localStorage.setItem('compression', JSON.stringify({
+      maxMb: maxMb(), split: $('split').checked, language, subtitles: $('subLang').value }));
+  } catch {}
+  const sub = $('subLang').value;
+  const texte = sub
+    ? `Chaque vidéo est transcrite, les sous-titres traduits en ${LANG_NAMES[sub]} si la langue parlée diffère (l'original est gardé), puis la vidéo est compressée.`
+    : 'Chaque vidéo est transcrite dans sa langue, puis compressée.';
+  $('splitHint').textContent = texte + ($('split').checked
+    ? ` Une vidéo longue devient plusieurs fichiers de ${maxMb()} Mo maximum, en gardant une image lisible.`
+    : ` Tout tient en un seul fichier de ${maxMb()} Mo : une vidéo très longue sera fortement dégradée, ou refusée.`);
   renderMedia();
 }
 $('maxMb').oninput = onSettings;
 $('split').onchange = onSettings;
+$('subLang').onchange = onSettings;
 $('lang').querySelectorAll('button').forEach((b) => b.onclick = () => { setLanguage(b.dataset.lang); onSettings(); });
 
 function payload() {
   if (maxMb() < 10) throw new Error('Taille maximale invalide (10 Mo minimum).');
   // Transcription (sous-titres + JSON) dans la langue choisie, puis compression.
   return { mode: 'process', options: {
-    language, formats: ['srt', 'json'], max_mb: maxMb(), split: $('split').checked,
+    language, subtitle_language: $('subLang').value || null,
+    formats: ['srt', 'json'], max_mb: maxMb(), split: $('split').checked,
   } };
 }
 
@@ -815,8 +835,9 @@ async function start(list, button) {
   if (count > 1) {
     const choice = await ask({
       title: `Traiter ${count} fichiers ?`,
-      text: `Chaque vidéo sera transcrite en ${language === 'en' ? 'anglais' : 'français'}, puis compressée `
-        + `en fichiers de ${maxMb()} Mo maximum. Les traitements s'enchaînent en arrière-plan.`,
+      text: `Chaque vidéo sera transcrite (${LANG_NAMES[language]})`
+        + ($('subLang').value ? `, sous-titres traduits en ${LANG_NAMES[$('subLang').value]}` : '')
+        + `, puis compressée en fichiers de ${maxMb()} Mo maximum. Les traitements s'enchaînent en arrière-plan.`,
       buttons: [['go', `Traiter les ${count} fichiers`, '']],
     });
     if (choice !== 'go') return;
@@ -998,6 +1019,9 @@ function partLabel(path, i, count) {
   const n = count > 1 && path.match(/_compressed_(\d+)\.[^.]+$/);
   if (n) return `Partie ${Number(n[1])}/${count}`;
   if (isVideo(path)) return 'Vidéo';
+  // Sous-titres d'origine gardés à côté d'une traduction : « titre.en.srt ».
+  const original = path.match(/\.([a-z]{2,3})\.(srt|vtt)$/);
+  if (original) return `${original[2].toUpperCase()} ${original[1].toUpperCase()} (original)`;
   const ext = path.match(/\.([^./]+)$/);
   if (ext) return ext[1].toUpperCase();
   return count > 1 ? `Fichier ${i + 1}` : 'Télécharger';
@@ -1017,7 +1041,10 @@ function jobInfo(j) {
   const outTotal = measured.reduce((a, b) => a + b, 0);
   const count = outputs.filter(isVideo).length || outputs.length;
   const over = measured.some((s) => s > maxMb() * MO);
-  const langTag = j.language ? ` · ${j.language === 'en' ? 'anglais' : 'français'}` : '';
+  const parlee = LANG_NAMES[j.language] || j.language;
+  const langTag = j.subtitle_language
+    ? ` · ${parlee || 'langue détectée'} → sous-titres ${LANG_NAMES[j.subtitle_language] || j.subtitle_language}`
+    : (parlee ? ` · ${parlee}` : '');
 
   let meta = bytes(j.size) + langTag;
   if (j.status === 'done' && outputs.length && !present) {

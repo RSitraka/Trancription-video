@@ -126,8 +126,8 @@ def logout() -> JSONResponse:
     return response
 
 
-ACTIVE_STATUSES = ("queued", "downloading", "running", "extracting", "transcribing", "ocr",
-                   "compressing")
+ACTIVE_STATUSES = ("queued", "downloading", "running", "extracting", "transcribing",
+                   "translating", "ocr", "compressing")
 
 
 def _source_states(session) -> tuple[set[str], set[str]]:
@@ -458,6 +458,7 @@ def _with_sizes(job: Job) -> dict:
     data = job.as_dict()
     data["folder"] = (job.options or {}).get("subdir")
     data["language"] = (job.options or {}).get("language")
+    data["subtitle_language"] = (job.options or {}).get("subtitle_language")
     data["output_sizes"] = [
         Path(o).stat().st_size if Path(o).is_file() else None for o in data["outputs"]
     ]
@@ -734,7 +735,7 @@ def _outputs_of(filename: str, subdir: str | None, known: list[str] | None = Non
     # Fichiers finaux ou en cours d'écriture, et dossiers de travail cachés
     # (`.cours_compressed.decoupe`, `.cours_compressed_1.encours.morceaux`).
     output = re.compile(rf"{stem}(_\d+)?(\.encours)?\.(mp4|m4a)"
-                        rf"|{re.escape(base)}\.(srt|vtt|json|txt|csv|rag\.jsonl)")
+                        rf"|{re.escape(base)}(\.[a-z]{{2,3}})?\.(srt|vtt|json|txt|csv|rag\.jsonl)")
     work = re.compile(rf"\.{stem}(_\d+)?(\.encours)?\.(decoupe|morceaux)")
     # Dossier au nom de la vidéo (`out/cours/`), et l'ancien emplacement à
     # plat (`out/`) pour les fichiers produits avant ce rangement.
@@ -804,7 +805,7 @@ def delete_job(job_id: str, files: bool = False) -> JSONResponse:
 # Nom de base d'un fichier produit : « cours » pour cours_compressed_3.mp4 ou cours.srt.
 OUTPUT_NAME = re.compile(
     r"(?P<base>.+?)(?:_compressed(?:_\d+)?(?:\.encours)?\.(?:mp4|m4a)"
-    r"|\.(?:srt|vtt|json|txt|csv|rag\.jsonl))"
+    r"|(?:\.[a-z]{2,3})?\.(?:srt|vtt|json|txt|csv|rag\.jsonl))"
 )
 
 

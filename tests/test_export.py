@@ -124,3 +124,11 @@ def test_rag_screen_passages_for_silent_slides(tmp_path, monkeypatch):
 
 def test_rag_is_utf8_not_escaped(tmp_path):
     assert "« RAG »" in write(tmp_path, "rag").read_text(encoding="utf-8")
+
+
+def test_dotted_titles_keep_their_full_name(tmp_path):
+    """« Node.js tutorial » ne doit pas devenir « Node.srt »."""
+    [srt] = export.write(SEGMENTS, tmp_path / "Node.js tutorial", ["srt"])
+    assert srt.name == "Node.js tutorial.srt"
+    [original] = export.write(SEGMENTS, tmp_path / "Cours.en", ["srt"])
+    assert original.name == "Cours.en.srt"
