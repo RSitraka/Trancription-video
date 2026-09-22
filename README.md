@@ -753,6 +753,34 @@ rechercher aussi bien ce qui a été dit que ce qui a été montré.
 
 ---
 
+## Traiter une vidéo à partir d'un lien
+
+Pratique pour tester sans fichier sous la main : page **Fichiers à traiter**,
+carte **Depuis un lien** — coller l'adresse, ou **glisser un lien** depuis le
+navigateur n'importe où dans la fenêtre.
+
+- la vidéo est récupérée **avec son son** (image et son fusionnés en MP4, 1080p
+  au plus), sous son **vrai titre**, puis transcrite et compressée avec les
+  options choisies ;
+- elle est rangée comme un fichier envoyé, et supprimée avec son traitement ;
+- API : `POST /jobs` avec `{"url": "https://…", "mode": "process", "options": {…}}`.
+
+| Source | Résultat (testé) |
+|---|---|
+| PeerTube (Framatube…), Internet Archive, lien direct `.mp4` | ✅ |
+| Dailymotion | ✅ (navigateur imité, `curl-cffi`) |
+| **YouTube**, Vimeo | ❌ ces sites exigent un compte connecté pour les téléchargements depuis un serveur : télécharger la vidéo sur son PC et envoyer le fichier |
+
+Le téléchargement utilise [yt-dlp](https://github.com/yt-dlp/yt-dlp), installé
+dans une couche à part de l'image : les sites changent souvent, et un
+`make deploy` le remet à jour. À réserver aux vidéos qu'on a le droit de
+télécharger.
+
+**Sécurité** : le serveur va chercher l'adresse donnée ; un lien vers le réseau
+interne (`127.0.0.1`, `192.168.x.x`, services Docker) est refusé, pour qu'on ne
+puisse pas s'en servir pour lire des services non exposés (voir SEC-16 dans
+`docs/SECURITE.md`).
+
 ## Titre des dossiers de sortie
 
 Un nom de fichier qui ne dit rien du contenu — `VID_20260918_141233.mp4`,

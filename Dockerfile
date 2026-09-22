@@ -33,6 +33,11 @@ WORKDIR /app
 COPY requirements.txt .
 RUN --mount=type=cache,target=/root/.cache/pip pip install -r requirements.txt
 
+# Téléchargement par lien (source/download.py). Couche à part : yt-dlp suit les
+# changements des sites et se met à jour souvent, sans toucher aux autres libs.
+# curl-cffi : certains sites (Dailymotion…) n'acceptent qu'un navigateur imité.
+RUN --mount=type=cache,target=/root/.cache/pip pip install "yt-dlp[default,curl-cffi]"
+
 COPY . .
 
 # Exécution sans privilèges ; /data et /models sont montés en volume

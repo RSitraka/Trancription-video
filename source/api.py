@@ -10,7 +10,7 @@ import shutil
 import threading
 import zipfile
 from pathlib import Path
-from urllib.parse import quote
+from urllib.parse import quote, urlparse
 
 from fastapi import BackgroundTasks, Body, Depends, FastAPI, HTTPException, Query, Request
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
@@ -126,7 +126,8 @@ def logout() -> JSONResponse:
     return response
 
 
-ACTIVE_STATUSES = ("queued", "running", "extracting", "transcribing", "ocr", "compressing")
+ACTIVE_STATUSES = ("queued", "downloading", "running", "extracting", "transcribing", "ocr",
+                   "compressing")
 
 
 def _source_states(session) -> tuple[set[str], set[str]]:
@@ -268,7 +269,25 @@ def create_job(payload: dict = Body(...)) -> dict:
 
     options = payload.get("options", {}) or {}
     options.pop("subdir", None)                 # fixé par le serveur uniquement
+    options.pop("url", None)                    # seulement par le champ « url »
     path = payload.get("path")
+
+    # Lien vers une vidéo en ligne : téléchargée par le worker, puis traitée.
+    if payload.get("url"):
+        from source import download
+
+        try:
+            url = download.check_url(str(payload["url"]))
+        except ValueError as error:
+            raise HTTPException(400, str(error)) from error
+        with SessionLocal() as session:
+            job = Job(filename=urlparse(url).netloc + urlparse(url).path[:120],
+                      status="queued", mode=mode, options={**options, "url": url})
+            session.add(job)
+            session.commit()
+            job.task_id = process_job.delay(job.id).id
+            session.commit()
+            return job.as_dict()
 
     with SessionLocal() as session:
         if path:

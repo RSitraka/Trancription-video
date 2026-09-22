@@ -26,7 +26,7 @@ die()  { printf '\033[31m✗ %s\033[0m\n' "$*" >&2; exit 1; }
 # Traitements en file ou en cours : un redémarrage du worker les interromprait.
 active_jobs() {
   curl -fsS "$URL/jobs?limit=10000" 2>/dev/null \
-    | grep -oE '"status":"(queued|running|extracting|transcribing|ocr|compressing)"' | wc -l
+    | grep -oE '"status":"(queued|downloading|running|extracting|transcribing|ocr|compressing)"' | wc -l
 }
 
 check_idle() {

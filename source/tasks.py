@@ -8,7 +8,7 @@ from pathlib import Path
 
 from celery import Celery
 
-from source import pipeline
+from source import download, pipeline
 from source.config import settings
 from source.db import Job, SessionLocal, init_db
 
@@ -52,6 +52,22 @@ def process_job(self, job_id: str) -> dict:
         source = Path(job.source_path or "")
         mode = job.mode
         options = dict(job.options or {})
+
+    # Traitement lancé à partir d'un lien : la vidéo est d'abord téléchargée,
+    # au même endroit qu'un fichier envoyé (supprimée avec le traitement).
+    url = options.pop("url", None)
+    if url and not job.source_path:
+        _update(job_id, status="downloading", progress=0.0, error=None)
+        try:
+            source = download.download(
+                url, settings.work_dir / "sources" / job_id,
+                on_progress=lambda p: _update(job_id, status="downloading", progress=p))
+        except Exception as error:                  # noqa: BLE001 - tracé en base
+            log.warning("téléchargement du job %s en échec : %s", job_id, error)
+            _update(job_id, status="failed", error=f"téléchargement impossible : {error}")
+            raise
+        _update(job_id, source_path=str(source), filename=source.name,
+                size=source.stat().st_size)
 
     if not source.exists():
         _update(job_id, status="failed", error=f"fichier absent : {source}")

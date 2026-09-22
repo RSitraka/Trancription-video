@@ -460,3 +460,35 @@ def test_folder_without_skip_done_reprocesses_everything(client, dirs, session, 
     add_job(session, source_path=str(fait), status="done")
     data = client.post("/jobs", json={"path": str(dirs.media / "cours")}).json()
     assert (data["count"], data["already_done"]) == (1, 0)
+
+
+def test_job_from_a_link(client, celery, session, monkeypatch):
+    from source import download
+
+    monkeypatch.setattr(download.socket, "getaddrinfo",
+                        lambda host, port: [(None, None, None, None, ("93.184.216.34", 0))])
+    job = client.post("/jobs", json={"url": "https://framatube.org/w/9c9de5e8",
+                                     "mode": "process", "options": {"language": "en"}})
+    assert job.status_code == 201
+    data = job.json()
+    assert data["status"] == "queued" and data["filename"] == "framatube.org/w/9c9de5e8"
+    assert celery.queued == [data["id"]]
+    assert session.get(Job, data["id"]).options == {
+        "language": "en", "url": "https://framatube.org/w/9c9de5e8"}
+
+
+def test_link_refused_before_queueing(client, celery, monkeypatch):
+    from source import download
+
+    monkeypatch.setattr(download.socket, "getaddrinfo",
+                        lambda host, port: [(None, None, None, None, ("127.0.0.1", 0))])
+    response = client.post("/jobs", json={"url": "http://piege.exemple.org/"})
+    assert response.status_code == 400 and "non publique" in response.json()["detail"]
+    assert celery.queued == []
+
+
+def test_url_cannot_be_smuggled_in_options(client, dirs, session, probe_ok):
+    """Seul le champ « url » déclenche un téléchargement, jamais une option."""
+    source = write(dirs.media / "cours.mp4")
+    client.post("/jobs", json={"path": str(source), "options": {"url": "http://10.0.0.5/"}})
+    assert "url" not in session.query(Job).one().options

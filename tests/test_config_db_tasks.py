@@ -138,3 +138,45 @@ def test_process_job_stores_title_and_note(session, dirs, monkeypatch, no_backen
     stored = session.get(Job, job.id)
     assert stored.title == "Réunion budget"
     assert stored.note.startswith("aucune piste audio")
+
+
+def test_process_job_downloads_a_link_first(session, dirs, monkeypatch, no_backend):
+    from source import download
+
+    video = dirs.work / "sources" / "x" / "Cours PeerTube.mp4"
+    recu = {}
+
+    def telecharger(url, destination, on_progress=None):
+        recu.update(url=url, destination=destination)
+        on_progress(0.5)
+        video.parent.mkdir(parents=True, exist_ok=True)
+        video.write_bytes(b"12345")
+        return video
+
+    monkeypatch.setattr(download, "download", telecharger)
+    monkeypatch.setitem(pipeline.RUNNERS, "process",
+                        lambda path, on_progress, language=None: Result(path, outputs=[]))
+    job = add_job(session, filename="framatube.org/w/x", status="queued", mode="process",
+                  options={"url": "https://framatube.org/w/x", "language": "fr"})
+
+    assert run(job.id).successful()
+    assert recu["url"] == "https://framatube.org/w/x"
+    assert recu["destination"] == dirs.work / "sources" / job.id
+    session.expire_all()
+    stored = session.get(Job, job.id)
+    assert (stored.filename, stored.source_path, stored.size) == (
+        "Cours PeerTube.mp4", str(video), 5)
+
+
+def test_process_job_download_failure_is_explained(session, dirs, monkeypatch, no_backend):
+    from source import download
+
+    def refus(url, destination, on_progress=None):
+        raise download.DownloadError("YouTube bloque les téléchargements depuis ce serveur")
+
+    monkeypatch.setattr(download, "download", refus)
+    job = add_job(session, status="queued", mode="process",
+                  options={"url": "https://www.youtube.com/watch?v=x"})
+    assert run(job.id).failed()
+    session.expire_all()
+    assert session.get(Job, job.id).error.startswith("téléchargement impossible : YouTube bloque")

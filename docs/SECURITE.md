@@ -259,6 +259,30 @@ toutes les routes protégées.
 `test_generated_token_is_persistent_and_private`, `test_ui_asks_for_login_on_401`,
 `test_ui_auto_login_clears_token_from_address_bar`.
 
+### SEC-16 — Liens vidéo : pas d'accès au réseau interne
+
+`POST /jobs` accepte un lien (`url`) que le worker télécharge. Sans contrôle,
+c'est une **requête côté serveur** (SSRF) : un lien vers `http://qdrant:6333`,
+`http://127.0.0.1:…` ou une adresse de métadonnées cloud ferait lire au serveur
+des services qui ne sont pas exposés.
+
+- seuls `http` et `https` sont acceptés ;
+- le nom d'hôte est résolu, et **toutes** ses adresses doivent être publiques
+  (`ipaddress.is_global`) : boucle locale, réseaux privés, lien local, CGNAT et
+  adresses non routables sont refusés ;
+- le contrôle est fait à la création du job (400) **et** au moment du
+  téléchargement (le DNS peut avoir changé entre-temps) ;
+- l'URL ne peut venir que du champ `url` : une option `url` glissée dans
+  `options` d'un job ordinaire est retirée ;
+- la taille est bornée par l'espace libre (`max_filesize`), avec une marge.
+
+*Limite acceptée* : une redirection HTTP suivie par yt-dlp n'est pas revérifiée ;
+le risque reste réservé aux clients autorisés (mode local ou jeton, SEC-10/14).
+
+*Tests* : `tests/test_download.py` (liens refusés, adresses internes, double
+résolution, nom inconnu), `test_link_refused_before_queueing`,
+`test_url_cannot_be_smuggled_in_options`.
+
 ### SEC-15 — Accès réseau : jeton obligatoire, hôtes déclarés
 
 Ouvrir l'API au réseau (`BIND_ADDRESS=0.0.0.0`) impose :

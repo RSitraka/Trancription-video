@@ -356,6 +356,20 @@
       </div>
 
       <div class="card">
+        <div class="card-head"><h2 class="grow">Depuis un lien</h2>
+          <span class="muted">PeerTube, Internet Archive, Dailymotion, lien direct .mp4… — vidéos que tu as le droit de télécharger</span></div>
+        <form class="settings" id="urlForm" style="gap:10px">
+          <label class="search grow" style="max-width:640px"><svg class="i"><use href="#i-download"/></svg>
+            <input type="url" id="videoUrl" class="grow" style="width:auto" required
+              placeholder="https://… (on peut aussi glisser un lien dans la fenêtre)" aria-label="Lien de la vidéo"></label>
+          <button type="submit" id="urlSubmit"><svg class="i"><use href="#i-play"/></svg>Télécharger et traiter</button>
+        </form>
+        <p class="hint">La vidéo est récupérée avec son son, sous son vrai titre, puis transcrite et compressée
+          avec les options ci-dessus. YouTube et Vimeo refusent les téléchargements depuis un serveur :
+          pour eux, télécharge la vidéo sur ton PC et envoie le fichier.</p>
+      </div>
+
+      <div class="card">
         <div class="card-head"><h2 class="grow">Envoyer depuis ce PC</h2><span class="muted">pour un fichier de quelques Go ; au-delà, le copier dans le dossier</span></div>
         <div id="drop" tabindex="0" role="button">
           <svg class="i"><use href="#i-upload"/></svg>
@@ -507,7 +521,7 @@
 </div>
 
 <div class="drop-overlay" id="dropOverlay" hidden>
-  <div><svg class="i"><use href="#i-upload"/></svg>Déposer pour envoyer et traiter</div>
+  <div><svg class="i"><use href="#i-upload"/></svg>Déposer le fichier ou le lien pour le traiter</div>
 </div>
 <div class="toast" id="toast"></div>
 
@@ -546,9 +560,9 @@ const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) =>
 const ico = (name) => `<svg class="i" aria-hidden="true"><use href="#i-${name}"/></svg>`;
 const plural = (n, word, suffix = 's') => `${n} ${word}${n > 1 ? suffix : ''}`;
 
-const ACTIVE = ['queued', 'running', 'extracting', 'transcribing', 'ocr', 'compressing', 'uploading'];
+const ACTIVE = ['queued', 'downloading', 'running', 'extracting', 'transcribing', 'ocr', 'compressing', 'uploading'];
 const STATUS = {
-  uploading: 'envoi', queued: 'en file', running: 'démarrage', compressing: 'compression',
+  uploading: 'envoi', queued: 'en file', downloading: 'téléchargement', running: 'démarrage', compressing: 'compression',
   extracting: 'analyse', transcribing: 'transcription', ocr: 'images', done: 'terminé', failed: 'échec',
 };
 const AUDIO = /\.(mp3|wav|m4a|flac|ogg|opus|aac|wma|aiff?|amr|mka|weba)$/i;
@@ -904,11 +918,37 @@ $('drop').onkeydown = (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preve
 $('dashUpload').onclick = () => $('file').click();
 $('file').onchange = (e) => e.target.files[0] && upload(e.target.files[0]);
 
-// Dépôt n'importe où dans la fenêtre.
+// --- Depuis un lien ------------------------------------------------------------
+const isLink = (text) => /^https?:\/\/\S+$/i.test((text || '').trim());
+async function submitUrl(url) {
+  fail('');
+  let body;
+  try { body = payload(); } catch (error) { fail(error.message); return; }
+  $('urlSubmit').disabled = true;
+  try {
+    await post('/jobs', { url: url.trim(), ...body });
+    $('videoUrl').value = '';
+    toast('Lien ajouté : téléchargement, puis transcription et compression', 'download');
+    go('traitements');
+  } catch (error) {
+    fail('Lien refusé : ' + error.message);
+  } finally {
+    $('urlSubmit').disabled = false;
+    refresh();
+  }
+}
+$('urlForm').onsubmit = (event) => { event.preventDefault(); submitUrl($('videoUrl').value); };
+
+// Dépôt n'importe où dans la fenêtre : un fichier, ou un lien glissé depuis le navigateur.
 let dragDepth = 0;
-const hasFiles = (e) => [...(e.dataTransfer?.types || [])].includes('Files');
+// Un lien glissé depuis la page elle-même (bouton de téléchargement…) n'est
+// pas une vidéo à traiter.
+let internalDrag = false;
+document.addEventListener('dragstart', () => { internalDrag = true; });
+document.addEventListener('dragend', () => { internalDrag = false; });
+const hasFiles = (e) => [...(e.dataTransfer?.types || [])].some((t) => t === 'Files' || t === 'text/uri-list');
 window.addEventListener('dragenter', (e) => {
-  if (!hasFiles(e) || uploading) return;
+  if (!hasFiles(e) || uploading || internalDrag) return;
   dragDepth++;
   $('dropOverlay').hidden = false;
 });
@@ -920,7 +960,11 @@ window.addEventListener('drop', (e) => {
   e.preventDefault();
   dragDepth = 0;
   $('dropOverlay').hidden = true;
-  if (e.dataTransfer.files[0]) upload(e.dataTransfer.files[0]);
+  if (internalDrag) { internalDrag = false; return; }
+  if (e.dataTransfer.files[0]) { upload(e.dataTransfer.files[0]); return; }
+  const link = (e.dataTransfer.getData('text/uri-list') || e.dataTransfer.getData('text/plain') || '')
+    .split('\n').map((l) => l.trim()).find((l) => l && !l.startsWith('#'));
+  if (isLink(link)) submitUrl(link);
 });
 
 // --- Traitements -------------------------------------------------------------
