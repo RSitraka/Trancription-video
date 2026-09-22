@@ -432,7 +432,7 @@
           <label class="field">Pertinence
             <select id="searchScore">
               <option value="">toutes</option>
-              <option value="0.8">bonne (≥ 0,80)</option>
+              <option value="0.8" selected>bonne (≥ 0,80)</option>
               <option value="0.85">forte (≥ 0,85)</option>
             </select></label>
           <label class="field">Résultats
@@ -1290,9 +1290,12 @@ $('searchForm').onsubmit = (event) => { event.preventDefault(); runSearch(); };
 
 // Filtres : relancent la recherche en cours dès qu'ils changent.
 let searchKind = '';
+// Pertinence « bonne » par défaut : mesuré sur de vraies questions, un passage
+// en rapport obtient 0,84 à 0,88, un passage sans rapport 0,75 à 0,78.
+const SCORE_DEFAULT = '0.8';
 function filtersChanged() {
-  $('searchReset').hidden = !($('searchSource').value || searchKind || $('searchScore').value
-    || $('searchLimit').value !== '10');
+  $('searchReset').hidden = !($('searchSource').value || searchKind
+    || $('searchScore').value !== SCORE_DEFAULT || $('searchLimit').value !== '10');
   if ($('q').value.trim().length >= 2) runSearch();
 }
 $('searchKind').querySelectorAll('button').forEach((b) => b.onclick = () => {
@@ -1302,7 +1305,7 @@ $('searchKind').querySelectorAll('button').forEach((b) => b.onclick = () => {
 });
 ['searchSource', 'searchScore', 'searchLimit'].forEach((id) => { $(id).onchange = filtersChanged; });
 $('searchReset').onclick = () => {
-  $('searchSource').value = ''; $('searchScore').value = ''; $('searchLimit').value = '10';
+  $('searchSource').value = ''; $('searchScore').value = SCORE_DEFAULT; $('searchLimit').value = '10';
   $('searchKind').querySelector('[data-kind=""]').click();
 };
 
@@ -1347,9 +1350,16 @@ async function runSearch() {
 
 function renderResults(hits, question) {
   if (!hits.length) {
+    const strict = $('searchScore').value !== '';
     $('results').innerHTML = emptyState('search',
-      `Aucun passage trouvé pour « ${esc(question)} ».<br>`
-      + '<span class="muted">Essaie d\'autres mots, élargis les filtres, ou indexe d\'autres vidéos.</span>');
+      `Aucun passage ${strict ? 'assez pertinent ' : ''}pour « ${esc(question)} ».<br>`
+      + (strict
+        ? '<span class="muted">Le sujet n\'est peut-être pas abordé dans les vidéos indexées. '
+          + '<a href="#" id="widen">Voir quand même les passages les plus proches</a></span>'
+        : '<span class="muted">Essaie d\'autres mots, ou indexe d\'autres vidéos.</span>'));
+    if ($('widen')) $('widen').onclick = (e) => {
+      e.preventDefault(); $('searchScore').value = ''; filtersChanged();
+    };
     return;
   }
   $('results').innerHTML = hits.map((h) => {

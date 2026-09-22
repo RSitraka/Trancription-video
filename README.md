@@ -896,8 +896,13 @@ Filtres, cumulables, qui relancent la recherche dès qu'ils changent :
 |---|---|---|
 | Vidéo | toutes, ou une vidéo indexée | `source=` |
 | Type | tout, **paroles** (ce qui a été dit), **à l'écran** (texte lu par OCR) | `kind=speech\|screen` |
-| Pertinence | toutes, bonne (≥ 0,80), forte (≥ 0,85) | `min_score=` |
+| Pertinence | toutes, **bonne (≥ 0,80, par défaut)**, forte (≥ 0,85) | `min_score=` |
 | Résultats | 5, 10, 20, 50 | `limit=` (1 à 50) |
+
+Pourquoi « bonne » par défaut : mesuré sur de vraies questions, un passage en
+rapport obtient 0,84 à 0,88, un passage sans rapport 0,75 à 0,78. Sans seuil,
+une question hors sujet renverrait quand même des passages. S'il ne reste rien,
+l'interface propose d'afficher quand même les plus proches.
 
 Les pages **Fichiers à traiter** et **Fichiers produits** ont aussi un champ
 « Filtrer par nom », affiché dès que la liste dépasse quelques éléments.
