@@ -334,6 +334,46 @@ Pour ouvrir l'accès au réseau (`BIND_ADDRESS=0.0.0.0`), activer d'abord le jet
 `ALLOWED_HOSTS`. L'interface demande alors le jeton (`API_TOKEN`) une fois par
 navigateur ; l'icône du Bureau connecte automatiquement.
 
+### Jeton d'accès
+
+Le jeton est la ligne `API_TOKEN` du fichier `.env` du serveur (64 caractères).
+Il n'est **jamais versionné** : `.env` est exclu de Git.
+
+**L'obtenir**
+
+```bash
+# sur le serveur
+grep API_TOKEN ~/transcription_video_audio/.env
+
+# depuis un autre PC (SSH vers le serveur)
+ssh <utilisateur>@<ip-du-serveur> "grep API_TOKEN ~/transcription_video_audio/.env"
+```
+
+S'il est vide, l'API en a généré un au démarrage :
+`docker compose exec api cat /data/api_token`.
+
+**L'utiliser** — une fois par navigateur, la session dure ensuite 30 jours :
+
+- ouvrir `http://<ip-du-serveur>:8100` et le coller dans la fenêtre **Connexion**
+  (la ligne entière `API_TOKEN=…` est acceptée aussi) ;
+- ou ouvrir directement `http://<ip-du-serveur>:8100/#jeton=<jeton>` : la
+  connexion est automatique, et le jeton est aussitôt effacé de la barre
+  d'adresse et de l'historique ;
+- en ligne de commande : en-tête `Authorization: Bearer <jeton>`.
+
+Sur le serveur, l'icône du Bureau connecte toute seule.
+
+**Le changer** — s'il a circulé, ou périodiquement :
+
+```bash
+cd ~/transcription_video_audio
+sed -i "s/^API_TOKEN=.*/API_TOKEN=$(openssl rand -hex 32)/" .env
+make up
+grep API_TOKEN .env        # le nouveau jeton, à coller une fois par navigateur
+```
+
+Toutes les sessions ouvertes sont alors déconnectées.
+
 ```
 ┌──────────────────────────────────────────────────────────┐
 │  Transcription Vidéo & Audio                        ●    │
