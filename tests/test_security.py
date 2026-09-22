@@ -297,7 +297,8 @@ PROTECTED = [
     ("GET", "/api"), ("GET", "/media"), ("GET", "/jobs"), ("GET", "/jobs/x"),
     ("GET", "/jobs/x/parts"), ("GET", "/jobs/x/files/0"), ("GET", "/jobs/x/archive.zip"),
     ("GET", "/jobs/x/result.srt"), ("GET", "/outputs"), ("GET", "/outputs/archive.zip?base=a"),
-    ("GET", "/settings"), ("GET", "/search?q=agent"), ("GET", "/sources"),
+    ("GET", "/settings"), ("GET", "/search?q=agent"), ("GET", "/search/ready"),
+    ("GET", "/sources"),
     ("GET", "/frames/a.jpg"), ("POST", "/jobs"), ("PUT", "/jobs/x/parts/0"),
     ("POST", "/jobs/x/complete"), ("POST", "/jobs/x/index"), ("DELETE", "/jobs/x"),
     ("DELETE", "/jobs?status=done"), ("DELETE", "/outputs?all=true"), ("DELETE", "/media?path=/x"),
@@ -630,7 +631,7 @@ def test_ui_exposes_rag_search_and_indexing():
     """Le serveur sait indexer et chercher : l'interface doit le proposer."""
     html = (ROOT / "source" / "static" / "index.html").read_text(encoding="utf-8")
     assert 'id="view-recherche"' in html and "'recherche'" in html
-    assert "/search?q=" in html and "json('/sources')" in html
+    assert "json('/search?' + params)" in html and "json('/sources')" in html
     assert "/index`" in html or "/index'" in html                      # bouton Indexer
 
 
@@ -647,3 +648,10 @@ def test_network_access_script_requires_token_and_firewall():
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
     exposition = readme[readme.index("### Accès depuis un autre PC"):][:1200]
     assert "REQUIRE_TOKEN=true" in exposition and "ALLOWED_HOSTS" in exposition
+
+
+def test_ui_search_filters_and_list_filters():
+    html = (ROOT / "source" / "static" / "index.html").read_text(encoding="utf-8")
+    for element in ('id="searchKind"', 'id="searchScore"', 'id="searchLimit"',
+                    'id="mediaFilter"', 'id="outputsFilter"', "/search/ready"):
+        assert element in html, element

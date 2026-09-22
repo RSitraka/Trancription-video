@@ -126,6 +126,12 @@
   .check { display: flex; align-items: center; gap: 9px; font-size: 13px; cursor: pointer; }
   .check input { accent-color: var(--accent); width: 16px; height: 16px; margin: 0; }
   .hint { color: var(--muted); font-size: 12px; margin: 10px 0 0; }
+  .filters-bar { margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--line); }
+  .field select { background: var(--sunk); color: var(--ink); border: 1px solid var(--line);
+    border-radius: 8px; padding: 6px 10px; font: inherit; max-width: 280px; }
+  .field select:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
+  .list-filter { margin: 0 0 8px; }
+  .list-filter input { width: 260px; }
   .search { display: flex; align-items: center; gap: 6px; background: var(--panel); border: 1px solid var(--line);
     border-radius: 8px; padding: 0 9px; color: var(--muted); }
   .search input { border: 0; background: transparent; color: var(--ink); font: inherit; padding: 6px 0; width: 210px; outline: none; }
@@ -340,6 +346,8 @@
 
       <div class="card">
         <div class="card-head"><h2 class="grow">Dans le dossier</h2><span class="muted" id="mediaSummary"></span></div>
+        <label class="search list-filter" id="mediaFilterBox" hidden><svg class="i"><use href="#i-search"/></svg>
+          <input type="search" id="mediaFilter" placeholder="Filtrer par nom" aria-label="Filtrer les fichiers"></label>
         <div id="media" class="list"></div>
       </div>
 
@@ -393,7 +401,11 @@
           <button type="button" class="ghost danger" id="clearOutputs" hidden><svg class="i"><use href="#i-trash"/></svg>Tout supprimer</button>
         </div>
       </div>
-      <div class="card"><div id="outputs" class="list"></div></div>
+      <div class="card">
+        <label class="search list-filter" id="outputsFilterBox" hidden><svg class="i"><use href="#i-search"/></svg>
+          <input type="search" id="outputsFilter" placeholder="Filtrer par nom" aria-label="Filtrer les fichiers produits"></label>
+        <div id="outputs" class="list"></div>
+      </div>
     </section>
 
     <!-- Recherche dans le contenu des vidéos -->
@@ -406,11 +418,30 @@
           <label class="search grow" style="max-width:520px"><svg class="i"><use href="#i-search"/></svg>
             <input type="search" id="q" class="grow" style="width:auto"
               placeholder="Une question ou quelques mots : « comment créer un agent »" aria-label="Recherche"></label>
-          <label class="field">dans
-            <select id="searchSource" class="seg" style="padding:6px 10px"><option value="">toutes les vidéos</option></select>
-          </label>
           <button type="submit"><svg class="i"><use href="#i-search"/></svg>Rechercher</button>
         </form>
+        <div class="settings filters-bar" id="searchFilters">
+          <label class="field">Vidéo
+            <select id="searchSource"><option value="">toutes</option></select></label>
+          <div class="field">Type
+            <div class="seg" id="searchKind" role="group" aria-label="Type de passage">
+              <button type="button" data-kind="" aria-pressed="true">Tout</button>
+              <button type="button" data-kind="speech" aria-pressed="false">Paroles</button>
+              <button type="button" data-kind="screen" aria-pressed="false">À l'écran</button>
+            </div></div>
+          <label class="field">Pertinence
+            <select id="searchScore">
+              <option value="">toutes</option>
+              <option value="0.8">bonne (≥ 0,80)</option>
+              <option value="0.85">forte (≥ 0,85)</option>
+            </select></label>
+          <label class="field">Résultats
+            <select id="searchLimit">
+              <option>5</option><option selected>10</option><option>20</option><option>50</option>
+            </select></label>
+          <button type="button" class="ghost" id="searchReset" hidden>Effacer les filtres</button>
+        </div>
+        <p class="hint" id="searchReady" hidden></p>
         <p class="hint" id="searchHint">Seules les vidéos indexées apparaissent ici : bouton <b>Indexer</b> sur un traitement terminé.</p>
       </div>
       <div class="card"><div class="list" id="results"></div></div>
@@ -697,7 +728,14 @@ function renderMedia() {
       (ex. <code>MEDIA_PATH=/mnt/e/videos</code>) puis relance le logiciel.`);
     return;
   }
-  $('media').innerHTML = entries.map((e, i) => {
+  const filterText = $('mediaFilter').value.trim().toLowerCase();
+  $('mediaFilterBox').hidden = entries.length < 6 && !filterText;
+  const visible = entries.map((e, i) => [e, i]).filter(([e]) => !filterText || e.name.toLowerCase().includes(filterText));
+  if (!visible.length) {
+    $('media').innerHTML = emptyState('search', `Aucun fichier ne contient « ${esc(filterText)} ».`);
+    return;
+  }
+  $('media').innerHTML = visible.map(([e, i]) => {
     const folder = e.kind === 'folder';
     const over = e.largest > limit;
     const size = `<span class="${over ? 'big' : 'fit'}">${bytes(e.size)}</span>`;
@@ -720,6 +758,7 @@ function renderMedia() {
   $('media').querySelectorAll('button[data-rm]').forEach((b) => b.onclick = () => deleteSource(entries[b.dataset.rm]));
 }
 $('all').onclick = () => start(entries, $('all'));
+$('mediaFilter').oninput = renderMedia;
 
 async function start(list, button) {
   fail('');
@@ -1163,7 +1202,8 @@ $('clearFailed').onclick = () => clear('failed', 'en échec');
 let outputGroups = [];
 let lastOutputs = '';
 function renderOutputs(groups) {
-  const snapshot = JSON.stringify(groups);
+  const filterText = $('outputsFilter').value.trim().toLowerCase();
+  const snapshot = JSON.stringify([groups, filterText]);
   if (snapshot === lastOutputs) return;
   lastOutputs = snapshot;
   outputGroups = groups;
@@ -1178,7 +1218,14 @@ function renderOutputs(groups) {
     $('outputs').innerHTML = emptyState('box', 'Aucun fichier produit pour l\'instant.');
     return;
   }
-  $('outputs').innerHTML = groups.map((g, i) => {
+  $('outputsFilterBox').hidden = groups.length < 6 && !filterText;
+  const visible = groups.map((g, i) => [g, i])
+    .filter(([g]) => !filterText || `${g.subdir}/${g.base}`.toLowerCase().includes(filterText));
+  if (!visible.length) {
+    $('outputs').innerHTML = emptyState('search', `Aucun résultat ne contient « ${esc(filterText)} ».`);
+    return;
+  }
+  $('outputs').innerHTML = visible.map(([g, i]) => {
     const videos = g.files.filter((f) => isVideo(f.name)).length;
     const others = g.files.length - videos;
     const detail = [videos && plural(videos, 'vidéo'), others && plural(others, 'sous-titre')]
@@ -1220,6 +1267,7 @@ async function deleteOutputs(group) {
   refresh();
 }
 $('clearOutputs').onclick = () => deleteOutputs(null);
+$('outputsFilter').oninput = () => renderOutputs(outputGroups);
 
 // --- Recherche dans le contenu des vidéos ------------------------------------
 let searching = false;
@@ -1228,7 +1276,7 @@ async function loadSources() {
   try { sources = await json('/sources'); } catch { return; }
   $('navSources').textContent = sources.length || '';
   const current = $('searchSource').value;
-  $('searchSource').innerHTML = '<option value="">toutes les vidéos</option>'
+  $('searchSource').innerHTML = '<option value="">toutes</option>'
     + sources.map((name) => `<option value="${esc(name)}">${esc(name)}</option>`).join('');
   $('searchSource').value = current;
   $('searchHint').innerHTML = sources.length
@@ -1240,18 +1288,53 @@ async function loadSources() {
 
 $('searchForm').onsubmit = (event) => { event.preventDefault(); runSearch(); };
 
+// Filtres : relancent la recherche en cours dès qu'ils changent.
+let searchKind = '';
+function filtersChanged() {
+  $('searchReset').hidden = !($('searchSource').value || searchKind || $('searchScore').value
+    || $('searchLimit').value !== '10');
+  if ($('q').value.trim().length >= 2) runSearch();
+}
+$('searchKind').querySelectorAll('button').forEach((b) => b.onclick = () => {
+  searchKind = b.dataset.kind;
+  $('searchKind').querySelectorAll('button').forEach((x) => x.setAttribute('aria-pressed', x === b));
+  filtersChanged();
+});
+['searchSource', 'searchScore', 'searchLimit'].forEach((id) => { $(id).onchange = filtersChanged; });
+$('searchReset').onclick = () => {
+  $('searchSource').value = ''; $('searchScore').value = ''; $('searchLimit').value = '10';
+  $('searchKind').querySelector('[data-kind=""]').click();
+};
+
+// État du moteur : au premier démarrage, son modèle (~2 Go) se télécharge.
+// On le dit, plutôt que de laisser une recherche tourner sans explication.
+let readyTimer;
+async function checkSearchReady() {
+  clearTimeout(readyTimer);
+  let ready = true;
+  try { ready = (await json('/search/ready')).ready; } catch { return; }
+  $('searchReady').hidden = ready;
+  if (!ready) {
+    $('searchReady').innerHTML = `${ico('clock')} Le moteur de recherche se prépare `
+      + '(au tout premier démarrage : téléchargement de 2 Go, quelques minutes). '
+      + 'Tu peux déjà lancer ta recherche : elle partira dès qu\'il sera prêt.';
+    readyTimer = setTimeout(checkSearchReady, 5000);
+  }
+}
+window.addEventListener('hashchange', () => { if (view === 'recherche') checkSearchReady(); });
+
 async function runSearch() {
   const question = $('q').value.trim();
   if (question.length < 2 || searching) return;
   searching = true;
   // Le modèle de recherche (plusieurs Go) se charge à la première question.
-  $('results').innerHTML = emptyState('clock', 'Recherche en cours…<br>'
-    + '<span class="muted">La toute première question télécharge le moteur de recherche '
-    + '(2 Go) : compter quelques minutes. Les suivantes sont immédiates.</span>');
+  $('results').innerHTML = emptyState('clock', 'Recherche en cours…');
   try {
-    const source = $('searchSource').value;
-    const hits = await json(`/search?q=${encodeURIComponent(question)}&limit=8`
-      + (source ? `&source=${encodeURIComponent(source)}` : ''));
+    const params = new URLSearchParams({ q: question, limit: $('searchLimit').value });
+    if ($('searchSource').value) params.set('source', $('searchSource').value);
+    if (searchKind) params.set('kind', searchKind);
+    if ($('searchScore').value) params.set('min_score', $('searchScore').value);
+    const hits = await json('/search?' + params);
     renderResults(hits, question);
   } catch (error) {
     $('results').innerHTML = emptyState('alert', error.status === 503
@@ -1266,7 +1349,7 @@ function renderResults(hits, question) {
   if (!hits.length) {
     $('results').innerHTML = emptyState('search',
       `Aucun passage trouvé pour « ${esc(question)} ».<br>`
-      + '<span class="muted">Essaie d\'autres mots, ou indexe d\'autres vidéos.</span>');
+      + '<span class="muted">Essaie d\'autres mots, élargis les filtres, ou indexe d\'autres vidéos.</span>');
     return;
   }
   $('results').innerHTML = hits.map((h) => {
@@ -1281,7 +1364,8 @@ function renderResults(hits, question) {
         <div class="grow">
           <div class="name" title="${esc(h.source)}">${esc(h.source)}
             <span class="badge run">${esc(h.timecode || '')}</span>
-            <span class="muted">score ${h.score}</span></div>
+            ${h.kind === 'screen' ? '<span class="badge">à l\'écran</span>' : ''}
+            <span class="muted">pertinence ${h.score}</span></div>
           <div style="margin-top:4px">${esc(h.text)}</div>
           ${screen}
           ${images ? `<div class="files" style="margin-top:6px">${images}</div>` : ''}
@@ -1341,6 +1425,7 @@ function searchFromUrl() {
 
 autoLogin().then(() => {
   route();
+  if (view === 'recherche') checkSearchReady();
   $('results').innerHTML = emptyState('search', 'Pose une question pour retrouver le passage exact dans tes vidéos.');
   json('/settings').then((s) => {
     for (const id of ['mediaPath', 'setMediaPath']) $(id).textContent = s.media_path;

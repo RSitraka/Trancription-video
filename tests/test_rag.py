@@ -26,6 +26,7 @@ class FakeQdrant:
         self.created = []
         self.upserts = []
         self.queries = []
+        self.thresholds = []
         self.pages = pages or []
 
     def collection_exists(self, name):
@@ -38,8 +39,9 @@ class FakeQdrant:
     def upsert(self, name, points):
         self.upserts.append((name, points))
 
-    def query_points(self, name, query, limit, query_filter):
+    def query_points(self, name, query, limit, query_filter, score_threshold=None):
         self.queries.append((name, query, limit, query_filter))
+        self.thresholds.append(score_threshold)
         hit = SimpleNamespace(score=0.876543, payload={
             "timecode": "00:01:00.000", "start": 60, "end": 70, "source": "cours",
             "text": "réponse"})
@@ -105,8 +107,8 @@ def test_search_prefix_filter_and_mapping(fakes, monkeypatch):
     assert name == settings.qdrant_collection and limit == 3
     assert condition.must[0].key == "source" and condition.must[0].match.value == "cours"
     assert hit == {"score": 0.8765, "timecode": "00:01:00.000", "start": 60,
-                   "source": "cours", "end": 70, "text": "réponse", "frames": [],
-                   "screen_text": []}
+                   "source": "cours", "end": 70, "text": "réponse", "kind": "speech",
+                   "frames": [], "screen_text": []}
 
     monkeypatch.setattr(settings, "embedding_model", "BAAI/bge-small-en")
     rag.search("sans prefixe")
@@ -123,3 +125,44 @@ def test_sources_paginates(fakes):
 
 def test_sources_without_collection(fakes):
     assert rag.sources() == []
+
+
+def test_search_filters_combine(fakes):
+    """Vidéo, type de passage et pertinence minimale se cumulent."""
+    rag.search("agent", limit=10, source="cours", kind="screen", min_score=0.8)
+    _, _, limit, condition = fakes.client.queries[-1]
+    assert limit == 10
+    assert {(c.key, c.match.value) for c in condition.must} == {
+        ("source", "cours"), ("kind", "screen")}
+    assert fakes.client.thresholds[-1] == 0.8
+
+
+def test_search_without_filters_sends_none(fakes):
+    rag.search("agent")
+    assert fakes.client.queries[-1][3] is None and fakes.client.thresholds[-1] is None
+
+
+def test_embedding_model_is_kept_in_the_models_volume(monkeypatch, tmp_path):
+    """Dans /tmp du conteneur, le modèle (2 Go) était perdu à chaque déploiement."""
+    import sys
+    from types import SimpleNamespace
+
+    appels = {}
+    faux = SimpleNamespace(TextEmbedding=lambda **kw: appels.update(kw) or "modèle")
+    monkeypatch.setitem(sys.modules, "fastembed", faux)
+    monkeypatch.setattr(settings, "embedding_cache_dir", tmp_path / "fastembed")
+    rag._embedder.cache_clear()
+    try:
+        assert not rag.ready()
+        assert rag._embedder() == "modèle"
+        assert rag.ready()
+        assert appels["cache_dir"] == str(tmp_path / "fastembed")
+        assert (tmp_path / "fastembed").is_dir()
+    finally:
+        rag._embedder.cache_clear()
+
+
+def test_default_cache_is_in_the_persistent_volume():
+    from source.config import Settings
+
+    assert str(Settings.model_fields["embedding_cache_dir"].default).startswith("/models/")

@@ -371,7 +371,7 @@ sed -i "s/^API_TOKEN=.*/API_TOKEN=$(openssl rand -hex 32)/" .env
 make up
 grep API_TOKEN .env        # le nouveau jeton, à coller une fois par navigateur
 ```
-
+ssh rasix@192.168.1.113 "grep API_TOKEN ~/transcription_video_audio/.env"
 Toutes les sessions ouvertes sont alors déconnectées.
 
 ```
@@ -885,10 +885,27 @@ docker compose run --rm cli python main.py search "comment créer un agent IA"
 
 ### Depuis l'interface
 
-Page **Recherche** (Alt+5, ou Ctrl+K) : une question en langage naturel, un
-filtre par vidéo, et des résultats affichant le timecode, le score, le passage
-et les captures d'écran quand l'OCR est activé. Une recherche peut aussi être
-ouverte directement : `http://localhost:8100/?q=comment+créer+un+agent`.
+Page **Recherche** (Alt+5, ou Ctrl+K) : une question en langage naturel, et
+des résultats affichant le timecode, la pertinence, le passage et les captures
+d'écran quand l'OCR est activé. Une recherche peut aussi être ouverte
+directement : `http://localhost:8100/?q=comment+créer+un+agent`.
+
+Filtres, cumulables, qui relancent la recherche dès qu'ils changent :
+
+| Filtre | Choix | API |
+|---|---|---|
+| Vidéo | toutes, ou une vidéo indexée | `source=` |
+| Type | tout, **paroles** (ce qui a été dit), **à l'écran** (texte lu par OCR) | `kind=speech\|screen` |
+| Pertinence | toutes, bonne (≥ 0,80), forte (≥ 0,85) | `min_score=` |
+| Résultats | 5, 10, 20, 50 | `limit=` (1 à 50) |
+
+Les pages **Fichiers à traiter** et **Fichiers produits** ont aussi un champ
+« Filtrer par nom », affiché dès que la liste dépasse quelques éléments.
+
+Le modèle de recherche (~2 Go) est téléchargé une seule fois, dans le volume
+`models` (`/models/fastembed`) : il survit aux redémarrages et aux déploiements.
+Pendant ce premier téléchargement, la page Recherche indique que le moteur se
+prépare (`GET /search/ready`).
 
 Pour rendre une vidéo cherchable : bouton **Indexer** sur un traitement terminé
 (page **Traitements**). L'état s'affiche ensuite sur le bouton : nombre de

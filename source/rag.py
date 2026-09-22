@@ -40,7 +40,14 @@ def _is_e5() -> bool:
 def _embedder():
     from fastembed import TextEmbedding
 
-    return TextEmbedding(model_name=settings.embedding_model)
+    settings.embedding_cache_dir.mkdir(parents=True, exist_ok=True)
+    return TextEmbedding(model_name=settings.embedding_model,
+                         cache_dir=str(settings.embedding_cache_dir))
+
+
+def ready() -> bool:
+    """Le modèle est-il chargé ? La première recherche l'attend sinon."""
+    return _embedder.cache_info().currsize > 0
 
 
 def read_passages(path: Path) -> Iterator[dict]:
@@ -96,11 +103,15 @@ def search(
     limit: int = 5,
     collection: str | None = None,
     source: str | None = None,
+    kind: str | None = None,
+    min_score: float | None = None,
 ) -> list[dict]:
     """Recherche sémantique. Renvoie les passages avec leur timecode.
 
-    `source` restreint la recherche à une vidéo : la collection est partagée
-    entre toutes les transcriptions.
+    Filtres, cumulables :
+    - `source` : une vidéo (la collection est partagée entre toutes) ;
+    - `kind` : « speech » (ce qui a été dit) ou « screen » (texte lu à l'écran) ;
+    - `min_score` : pertinence minimale, entre 0 et 1.
     """
     from qdrant_client.models import FieldCondition, Filter, MatchValue
 
@@ -109,14 +120,16 @@ def search(
     query = (E5_QUERY if _is_e5() else "") + question
     vector = next(iter(embedder.embed([query]))).tolist()
 
-    condition = None
+    must = []
     if source:
-        condition = Filter(
-            must=[FieldCondition(key="source", match=MatchValue(value=source))]
-        )
+        must.append(FieldCondition(key="source", match=MatchValue(value=source)))
+    if kind:
+        must.append(FieldCondition(key="kind", match=MatchValue(value=kind)))
+    condition = Filter(must=must) if must else None
 
     hits = client.query_points(
-        collection, query=vector, limit=limit, query_filter=condition
+        collection, query=vector, limit=limit, query_filter=condition,
+        score_threshold=min_score,
     ).points
     return [
         {
@@ -126,6 +139,7 @@ def search(
             "source": hit.payload.get("source"),
             "end": hit.payload.get("end"),
             "text": hit.payload.get("text", ""),
+            "kind": hit.payload.get("kind", "speech"),
             "frames": hit.payload.get("frames", []),
             "screen_text": hit.payload.get("screen_text", []),
         }

@@ -356,7 +356,7 @@ def test_search_and_sources_unavailable(client, monkeypatch):
 def test_search_ok(client, monkeypatch):
     from source import rag
 
-    monkeypatch.setattr(rag, "search", lambda q, limit, source=None: [{"q": q, "s": source}])
+    monkeypatch.setattr(rag, "search", lambda q, limit, source=None, **filtres: [{"q": q, "s": source}])
     assert client.get("/search", params={"q": "agent", "source": "cours"}).json() == [
         {"q": "agent", "s": "cours"}]
 
@@ -399,3 +399,29 @@ def test_delete_media_removes_titled_outputs(client, session, dirs):
 
     assert client.delete("/media", params={"path": str(source)}).json()["files_deleted"] == 1
     assert not titled.exists() and not source.exists()
+
+
+def test_search_passes_filters(client, monkeypatch):
+    from source import rag
+
+    recu = {}
+    monkeypatch.setattr(rag, "search", lambda q, limit, **kw: recu.update(q=q, limit=limit, **kw) or [])
+    client.get("/search", params={"q": "agent", "limit": 20, "source": "cours",
+                                  "kind": "speech", "min_score": 0.85})
+    assert recu == {"q": "agent", "limit": 20, "source": "cours", "kind": "speech",
+                    "min_score": 0.85}
+
+
+@pytest.mark.parametrize("params", [
+    {"q": "agent", "kind": "video"}, {"q": "agent", "min_score": 2},
+    {"q": "agent", "limit": 0}, {"q": "agent", "limit": 500},
+])
+def test_search_rejects_invalid_filters(client, params):
+    assert client.get("/search", params=params).status_code == 422
+
+
+def test_search_ready(client, monkeypatch):
+    from source import rag
+
+    monkeypatch.setattr(rag, "ready", lambda: False)
+    assert client.get("/search/ready").json() == {"ready": False}

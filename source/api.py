@@ -626,16 +626,29 @@ def index_job(job_id: str, background: BackgroundTasks) -> dict:
 @app.get("/search")
 def search(
     q: str = Query(min_length=2),
-    limit: int = 5,
+    limit: int = Query(5, ge=1, le=50),
     source: str | None = None,
+    kind: str | None = Query(None, pattern="^(speech|screen)$"),
+    min_score: float | None = Query(None, ge=0, le=1),
 ) -> list[dict]:
-    """Recherche sémantique. `source` restreint la recherche à une vidéo."""
+    """Recherche sémantique, avec filtres : `source` (une vidéo), `kind`
+    (« speech » : ce qui a été dit, « screen » : texte à l'écran) et
+    `min_score` (pertinence minimale)."""
     from source import rag
 
     try:
-        return rag.search(q, limit, source=source)
+        return rag.search(q, limit, source=source, kind=kind, min_score=min_score)
     except Exception as error:                      # noqa: BLE001
         raise HTTPException(503, f"recherche indisponible : {error}") from error
+
+
+@app.get("/search/ready")
+def search_ready() -> dict:
+    """Le moteur de recherche est-il prêt ? Au premier démarrage, son modèle
+    (~2 Go) se télécharge : l'interface le signale au lieu d'attendre en silence."""
+    from source import rag
+
+    return {"ready": rag.ready()}
 
 
 @app.get("/frames/{name:path}")

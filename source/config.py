@@ -77,6 +77,11 @@ class Settings(BaseSettings):
     qdrant_url: str = "http://qdrant:6333"
     qdrant_collection: str = "transcriptions"
     embedding_model: str = "intfloat/multilingual-e5-large"
+    # Modèle d'embedding (~2 Go) : dans le volume « models », qui survit aux
+    # déploiements. Par défaut, fastembed l'écrit dans /tmp du conteneur, effacé
+    # à chaque redémarrage : la recherche restait bloquée ~10 min le temps de
+    # le retélécharger.
+    embedding_cache_dir: Path = Path("/models/fastembed")
 
     @property
     def sqlalchemy_url(self) -> str:
