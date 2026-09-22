@@ -765,11 +765,18 @@ navigateur n'importe où dans la fenêtre.
 - elle est rangée comme un fichier envoyé, et supprimée avec son traitement ;
 - API : `POST /jobs` avec `{"url": "https://…", "mode": "process", "options": {…}}`.
 
-| Source | Résultat (testé) |
+| Source | Résultat (testé sur le serveur) |
 |---|---|
+| **YouTube** | ✅ sans compte — « Me at the zoo » : téléchargée, transcrite et compressée en 8 s |
 | PeerTube (Framatube…), Internet Archive, lien direct `.mp4` | ✅ |
 | Dailymotion | ✅ (navigateur imité, `curl-cffi`) |
-| **YouTube**, Vimeo | ❌ ces sites exigent un compte connecté pour les téléchargements depuis un serveur : télécharger la vidéo sur son PC et envoyer le fichier |
+| Vimeo | ❌ exige un compte connecté : télécharger la vidéo sur son PC et envoyer le fichier |
+
+YouTube peut ponctuellement demander de « confirmer qu'on n'est pas un robot »
+(selon l'adresse du serveur et le nombre de requêtes). Le traitement échoue alors
+avec ce message : réessayer plus tard, ou envoyer le fichier. Le composant
+`curl-cffi`, qui imite un navigateur, fait la différence : sans lui, YouTube
+refusait systématiquement.
 
 Le téléchargement utilise [yt-dlp](https://github.com/yt-dlp/yt-dlp), installé
 dans une couche à part de l'image : les sites changent souvent, et un
