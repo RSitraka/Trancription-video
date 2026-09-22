@@ -655,3 +655,9 @@ def test_ui_search_filters_and_list_filters():
     for element in ('id="searchKind"', 'id="searchScore"', 'id="searchLimit"',
                     'id="mediaFilter"', 'id="outputsFilter"', "/search/ready"):
         assert element in html, element
+
+
+def test_ui_hides_processed_files():
+    html = (ROOT / "source" / "static" / "index.html").read_text(encoding="utf-8")
+    assert 'id="showDone"' in html and "skip_done: true" in html
+    assert "entries.filter((e) => remaining(e) > 0)" in html      # « Tout traiter »

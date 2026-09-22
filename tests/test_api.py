@@ -60,9 +60,9 @@ def test_list_media(client, dirs):
     (dirs.media / "vide").mkdir()
     assert client.get("/media").json() == [
         {"path": str(dirs.media / "b.mp4"), "name": "b.mp4", "kind": "file",
-         "count": 1, "size": 5, "largest": 5},
+         "count": 1, "size": 5, "largest": 5, "done": 0, "active": 0},
         {"path": str(dirs.media / "module"), "name": "module", "kind": "folder",
-         "count": 2, "size": 4, "largest": 3},
+         "count": 2, "size": 4, "largest": 3, "done": 0, "active": 0},
     ]
 
 
@@ -425,3 +425,38 @@ def test_search_ready(client, monkeypatch):
 
     monkeypatch.setattr(rag, "ready", lambda: False)
     assert client.get("/search/ready").json() == {"ready": False}
+
+
+def test_media_listing_reports_processed_files(client, dirs, session):
+    """L'interface masque ce qui est déjà traité : l'API doit le dire."""
+    fait = write(dirs.media / "fait.mp4")
+    encours = write(dirs.media / "encours.mp4")
+    write(dirs.media / "neuf.mp4")
+    dossier_fait = write(dirs.media / "cours" / "a.mp4")
+    write(dirs.media / "cours" / "b.mp4")
+    add_job(session, source_path=str(fait), status="done")
+    add_job(session, source_path=str(encours), status="compressing")
+    add_job(session, source_path=str(dossier_fait), status="done")
+    add_job(session, source_path=str(dirs.media / "neuf.mp4"), status="failed")  # échec : à refaire
+
+    etat = {e["name"]: (e["done"], e["active"]) for e in client.get("/media").json()}
+    assert etat == {"cours": (1, 0), "encours.mp4": (0, 1), "fait.mp4": (1, 0), "neuf.mp4": (0, 0)}
+
+
+def test_folder_skips_already_processed_files(client, dirs, session, celery):
+    fait = write(dirs.media / "cours" / "a.mp4")
+    write(dirs.media / "cours" / "b.mp4")
+    write(dirs.media / "cours" / "c.mp4")
+    add_job(session, source_path=str(fait), status="done")
+
+    data = client.post("/jobs", json={"path": str(dirs.media / "cours"), "skip_done": True}).json()
+    assert (data["count"], data["already_done"]) == (2, 1)
+    assert sorted(j["filename"] for j in data["jobs"]) == ["b.mp4", "c.mp4"]
+
+
+def test_folder_without_skip_done_reprocesses_everything(client, dirs, session, celery):
+    """Sans l'option, comportement d'origine : tout est remis en file."""
+    fait = write(dirs.media / "cours" / "a.mp4")
+    add_job(session, source_path=str(fait), status="done")
+    data = client.post("/jobs", json={"path": str(dirs.media / "cours")}).json()
+    assert (data["count"], data["already_done"]) == (1, 0)

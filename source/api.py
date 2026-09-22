@@ -126,15 +126,31 @@ def logout() -> JSONResponse:
     return response
 
 
+ACTIVE_STATUSES = ("queued", "running", "extracting", "transcribing", "ocr", "compressing")
+
+
+def _source_states(session) -> tuple[set[str], set[str]]:
+    """Sources déjà traitées avec succès, et sources en cours de traitement."""
+    rows = session.query(Job.source_path, Job.status).filter(
+        Job.source_path.isnot(None),
+        Job.status.in_(("done", *ACTIVE_STATUSES))).all()
+    done = {path for path, status in rows if status == "done"}
+    active = {path for path, status in rows if status != "done"}
+    return done, active
+
+
 @app.get("/media")
 def list_media() -> list[dict]:
     """Fichiers et dossiers de MEDIA_PATH, traités sur place sans upload.
 
     Un dossier est résumé (nombre de fichiers média, taille totale) : il peut
-    contenir des milliers de vidéos.
+    contenir des milliers de vidéos. `done` et `active` comptent les fichiers
+    déjà traités et en cours : l'interface n'affiche que ce qui reste à faire.
     """
     if not settings.media_dir.exists():
         return []
+    with SessionLocal() as session:
+        done_paths, active_paths = _source_states(session)
     entries = []
     for path in sorted(settings.media_dir.iterdir()):
         if path.name.startswith("."):
@@ -148,12 +164,16 @@ def list_media() -> list[dict]:
                 "count": len(files),
                 "size": sum(f.stat().st_size for f in files),
                 "largest": max(f.stat().st_size for f in files),
+                "done": sum(str(f) in done_paths for f in files),
+                "active": sum(str(f) in active_paths for f in files),
             })
         elif path.is_file() and path.suffix.lower() in media.MEDIA_EXTENSIONS:
             size = path.stat().st_size
             entries.append({
                 "path": str(path), "name": path.name, "kind": "file",
                 "count": 1, "size": size, "largest": size,
+                "done": int(str(path) in done_paths),
+                "active": int(str(path) in active_paths),
             })
     return entries
 
@@ -261,8 +281,13 @@ def create_job(payload: dict = Body(...)) -> dict:
                 # sous-dossiers différents ne s'écrasent pas.
                 root = source.parent
                 busy = _busy_folders(session)
-                jobs, skipped = [], 0
+                # « skip_done » : les fichiers déjà traités ne sont pas refaits.
+                done_paths = _source_states(session)[0] if payload.get("skip_done") else set()
+                jobs, skipped, already = [], 0, 0
                 for f in files:
+                    if str(f) in done_paths:
+                        already += 1
+                        continue
                     subdir = str(f.parent.relative_to(root))
                     # Déjà en cours : un second job mélangerait ses parties
                     # avec celles du premier dans le même dossier.
@@ -270,7 +295,7 @@ def create_job(payload: dict = Body(...)) -> dict:
                         skipped += 1
                         continue
                     jobs.append(_queue(session, f, mode, {**options, "subdir": subdir}))
-                return {"count": len(jobs), "skipped": skipped,
+                return {"count": len(jobs), "skipped": skipped, "already_done": already,
                         "jobs": [j.as_dict() for j in jobs]}
 
             if _folder_key(source.name, None) in _busy_folders(session):

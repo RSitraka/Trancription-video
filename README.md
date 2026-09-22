@@ -399,7 +399,11 @@ Elle permet de :
 - **déposer un fichier** par glisser-déposer — le navigateur le découpe en
   morceaux de 64 Mo envoyés un par un, avec 3 tentatives par morceau ; la
   mémoire du navigateur ne dépend donc pas de la taille du fichier ;
-- **lancer un fichier déjà dans `media/`** sans le réenvoyer ;
+- **lancer un fichier déjà dans `media/`** sans le réenvoyer. La liste ne montre
+  que **ce qui reste à faire** : un fichier traité avec succès en sort, un dossier
+  indique « 3 déjà traités » et propose « Traiter les 7 restants ». Une case
+  « Afficher aussi les fichiers déjà traités » les remet à l'écran, avec un
+  bouton **Retraiter**. Retirer un traitement (✕) remet son fichier dans la liste ;
 - **supprimer une vidéo** (🗑) de `media/` : après une alerte de confirmation,
   la vidéo est effacée **définitivement** du disque avec toutes ses
   compressions, ses sous-titres et ses travaux (API : `DELETE /media?path=…`).

@@ -346,8 +346,12 @@
 
       <div class="card">
         <div class="card-head"><h2 class="grow">Dans le dossier</h2><span class="muted" id="mediaSummary"></span></div>
-        <label class="search list-filter" id="mediaFilterBox" hidden><svg class="i"><use href="#i-search"/></svg>
-          <input type="search" id="mediaFilter" placeholder="Filtrer par nom" aria-label="Filtrer les fichiers"></label>
+        <div class="settings" style="gap:10px 20px;margin-bottom:6px">
+          <label class="search list-filter" id="mediaFilterBox" hidden style="margin:0"><svg class="i"><use href="#i-search"/></svg>
+            <input type="search" id="mediaFilter" placeholder="Filtrer par nom" aria-label="Filtrer les fichiers"></label>
+          <label class="check" id="showDoneBox" hidden><input type="checkbox" id="showDone">
+            <span id="showDoneLabel">Afficher aussi les fichiers déjà traités</span></label>
+        </div>
         <div id="media" class="list"></div>
       </div>
 
@@ -702,25 +706,36 @@ function payload() {
 
 // --- Fichiers à traiter ------------------------------------------------------
 let entries = null;
-async function loadMedia() {
-  $('media').innerHTML = emptyState('refresh', 'Lecture du dossier…');
+async function loadMedia(quiet = false) {
+  if (!quiet) $('media').innerHTML = emptyState('refresh', 'Lecture du dossier…');
   try { entries = await json('/media'); }
   catch (error) { entries = null; $('media').innerHTML = `<p class="err">${esc(error.message)}</p>`; return; }
   renderMedia();
 }
-$('reload').onclick = loadMedia;
+$('reload').onclick = () => loadMedia();
+
+// Ce qui reste à faire : un fichier traité avec succès, ou un dossier dont tous
+// les fichiers le sont, sort de la liste. Retirer le traitement (✕) l'y remet.
+const remaining = (e) => e.count - (e.done || 0) - (e.active || 0);
+const finished = (e) => remaining(e) <= 0 && !(e.active > 0);
 
 function renderMedia() {
   if (!entries) return;
   const limit = maxMb() * MO;
-  const count = entries.reduce((n, e) => n + e.count, 0);
-  const total = entries.reduce((n, e) => n + e.size, 0);
+  const todo = entries.reduce((n, e) => n + Math.max(remaining(e), 0), 0);
+  const done = entries.reduce((n, e) => n + (e.done || 0), 0);
+  const todoSize = entries.filter((e) => remaining(e) > 0).reduce((n, e) => n + e.size, 0);
+  const showDone = $('showDone').checked;
 
-  $('navMedia').textContent = count || '';
-  $('mediaSummary').textContent = count ? `${plural(count, 'fichier')} · ${bytes(total)}` : '';
-  $('all').hidden = entries.length < 2;
+  $('navMedia').textContent = todo || '';
+  $('mediaSummary').textContent = todo
+    ? `${plural(todo, 'fichier')} à traiter · ${bytes(todoSize)}` + (done ? ` · ${done} déjà traité${done > 1 ? 's' : ''}` : '')
+    : (done ? `tout est traité (${done})` : '');
+  $('all').hidden = entries.filter((e) => remaining(e) > 0).length < 2;
   $('all').innerHTML = `${ico('play')}<span></span>`;
-  $('all').lastChild.textContent = `Tout traiter (${count})`;
+  $('all').lastChild.textContent = `Tout traiter (${todo})`;
+  $('showDoneBox').hidden = !done;
+  $('showDoneLabel').textContent = `Afficher aussi les fichiers déjà traités (${done})`;
 
   if (!entries.length) {
     $('media').innerHTML = emptyState('folder', `Aucun fichier audio ou vidéo dans ce dossier.<br>
@@ -730,41 +745,59 @@ function renderMedia() {
   }
   const filterText = $('mediaFilter').value.trim().toLowerCase();
   $('mediaFilterBox').hidden = entries.length < 6 && !filterText;
-  const visible = entries.map((e, i) => [e, i]).filter(([e]) => !filterText || e.name.toLowerCase().includes(filterText));
+  const visible = entries.map((e, i) => [e, i])
+    .filter(([e]) => showDone || !finished(e))
+    .filter(([e]) => !filterText || e.name.toLowerCase().includes(filterText));
   if (!visible.length) {
-    $('media').innerHTML = emptyState('search', `Aucun fichier ne contient « ${esc(filterText)} ».`);
+    $('media').innerHTML = filterText
+      ? emptyState('search', `Aucun fichier ne contient « ${esc(filterText)} ».`)
+      : emptyState('check', `Tout est traité : ${plural(done, 'fichier')}.<br>`
+        + '<span class="muted">Dépose de nouvelles vidéos dans le dossier, puis <b>Relire le dossier</b>.</span>');
     return;
   }
   $('media').innerHTML = visible.map(([e, i]) => {
     const folder = e.kind === 'folder';
     const over = e.largest > limit;
+    const left = remaining(e);
     const size = `<span class="${over ? 'big' : 'fit'}">${bytes(e.size)}</span>`;
+    const state = [e.done && `${e.done} déjà traité${e.done > 1 ? 's' : ''}`,
+                   e.active && `${e.active} en cours`].filter(Boolean).join(' · ');
     const detail = folder
-      ? `${plural(e.count, 'fichier')} · ${size} au total`
+      ? `${plural(e.count, 'fichier')} · ${size} au total${state ? ' · ' + state : ''}`
+      : e.done ? `${size} · <span class="fit">déjà traité</span>`
+      : e.active ? `${size} · en cours de traitement`
       : `${size}${over ? '' : ' · déjà sous la limite, sera copié tel quel'}`;
     const icon = folder ? 'folder' : AUDIO.test(e.name) ? 'audio' : 'film';
+    const label = folder ? (e.done ? `Traiter les ${left} restants` : `Traiter les ${e.count}`)
+      : e.done ? 'Retraiter' : 'Traiter';
+    const button = left > 0 || (!folder && e.done)
+      ? `<button type="button" class="${over && !e.done ? '' : 'ghost'}" data-i="${i}">${ico('play')}${label}</button>`
+      : `<span class="badge ${e.active ? 'run' : 'done'}">${e.active ? 'en cours' : 'traité'}</span>`;
     return `
-      <div class="row">
+      <div class="row"${finished(e) ? ' style="opacity:.6"' : ''}>
         <div class="ficon ${folder ? '' : 'video'}">${ico(icon)}</div>
         <div class="grow">
           <div class="name" title="${esc(e.path)}">${esc(e.name)}</div>
           <div class="meta">${detail}</div>
         </div>
-        <button type="button" class="${over ? '' : 'ghost'}" data-i="${i}">${ico('play')}${folder ? `Traiter les ${e.count}` : 'Traiter'}</button>
+        ${button}
         <button type="button" class="icon danger" data-rm="${i}" title="Supprimer du disque, avec ses compressions">${ico('trash')}</button>
       </div>`;
   }).join('');
   $('media').querySelectorAll('button[data-i]').forEach((b) => b.onclick = () => start([entries[b.dataset.i]], b));
   $('media').querySelectorAll('button[data-rm]').forEach((b) => b.onclick = () => deleteSource(entries[b.dataset.rm]));
 }
-$('all').onclick = () => start(entries, $('all'));
+// « Tout traiter » : seulement ce qui reste à faire.
+$('all').onclick = () => start(entries.filter((e) => remaining(e) > 0), $('all'));
 $('mediaFilter').oninput = renderMedia;
+$('showDone').onchange = renderMedia;
 
 async function start(list, button) {
   fail('');
   let body;
   try { body = payload(); } catch (error) { fail(error.message); return; }
-  const count = list.reduce((n, e) => n + e.count, 0);
+  // Un dossier ne compte que ses fichiers restants (le serveur saute les autres).
+  const count = list.reduce((n, e) => n + (e.kind === 'folder' ? Math.max(remaining(e), 0) : 1), 0);
   if (count > 1) {
     const choice = await ask({
       title: `Traiter ${count} fichiers ?`,
@@ -775,20 +808,22 @@ async function start(list, button) {
     if (choice !== 'go') return;
   }
   button.disabled = true;
-  let queued = 0, skipped = 0;
+  let queued = 0, skipped = 0, alreadyDone = 0;
   try {
     for (const e of list) {
       try {
-        const created = await post('/jobs', { path: e.path, ...body });
+        const created = await post('/jobs', { path: e.path, ...body, skip_done: true });
         queued += created.count ?? 1;
         skipped += created.skipped || 0;
+        alreadyDone += created.already_done || 0;
       } catch (error) {
         if (error.status !== 409) throw error;
         skipped += 1;                   // déjà en cours : pas de doublon dans le même dossier
       }
     }
     toast(`${plural(queued, 'fichier')} ajouté${queued > 1 ? 's' : ''} à la file`
-      + (skipped ? ` · ${skipped} déjà en cours, ignoré${skipped > 1 ? 's' : ''}` : ''));
+      + (skipped ? ` · ${skipped} déjà en cours, ignoré${skipped > 1 ? 's' : ''}` : '')
+      + (alreadyDone ? ` · ${alreadyDone} déjà traité${alreadyDone > 1 ? 's' : ''}, non refait${alreadyDone > 1 ? 's' : ''}` : ''));
   } catch (error) {
     fail('Impossible de lancer : ' + error.message);
   } finally {
@@ -1391,6 +1426,7 @@ function setConnection(state, text) {
 }
 
 let timer;
+let lastStatuses = null;
 async function refresh() {
   clearTimeout(timer);
   let busy = false;
@@ -1399,6 +1435,10 @@ async function refresh() {
     setConnection('up', 'En ligne');
     renderJobs(jobs);
     notifyChanges(jobs);
+    // Un traitement a commencé ou fini : la liste « à traiter » change aussi.
+    const statuses = jobs.map((j) => j.id + j.status).join();
+    if (lastStatuses !== null && statuses !== lastStatuses) loadMedia(true);
+    lastStatuses = statuses;
     busy = jobs.some((j) => ACTIVE.includes(j.status));
     renderOutputs(await json('/outputs'));
     loadSources();
